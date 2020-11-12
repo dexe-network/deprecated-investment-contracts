@@ -1,0 +1,37 @@
+{
+  "name": "contract-dexe-asset-management",
+  "version": "1.0.0",
+  "description": "",
+  "main": "truffle-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "start": "truffle console --network",
+    "build": "truffle compile",
+    "test": "truffle test --network test",
+    "full-test": "concurrently --kill-others \"npm run ganache\" \"npm run test\"",
+    "compile": "truffle compile",
+    "remixd": "remixd -s ./contracts/ --remix-ide https://remix.ethereum.org",
+    "ganache": "ganache-cli --networkId 5777 -q -f https://mainnet.infura.io/v3/31d99ba869424488ac90605233d4da0e -a ${ACCOUNT_AMOUNT:-10} -s 073d7998dc6d09246b656e9ba6048219cdf0bfaafac284e0f2b03dd23a2dfaebe17ff6a9173c7bd2e8473642dbc9fc6901ef7bee9c745639f7161a1e4579482d",
+    "migrate": "truffle migrate"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@openzeppelin/contracts": "^3.1.0",
+    "@uniswap/lib": "^1.1.4",
+    "@uniswap/v2-periphery": "^1.1.0-beta.0",
+    "chai": "^4.2.0",
+    "ganache-cli": "^6.11.0",
+    "js-big-decimal": "^1.3.1",
+    "openzeppelin-test-helpers": "^0.5.1",
+    "remixd": "^0.2.3-alpha.7",
+    "truffle": "^5.1.43",
+    "truffle-privatekey-provider": "^1.5.0",
+    "tslib": "^2.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^5.3.0"
+  }
+}
