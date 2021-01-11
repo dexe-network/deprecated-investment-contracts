@@ -16,7 +16,7 @@ module.exports = {
       port: 8545,
       network_id: 5777, // Match Ganache(Truffle) network id
       //provider: () => new Provider('88197d4cac39375094dab1cfd7e302a0874a342ed6a1a965a8d8e4e381327eb1', 'http://127.0.0.1:8545'),
-      gas: 6500000,
+      gas: 8000000,
     },
     rinkeby: {
       network_id: 4,

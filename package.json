@@ -13,7 +13,7 @@
     "full-test": "concurrently --kill-others \"npm run ganache\" \"npm run test\"",
     "compile": "truffle compile",
     "remixd": "remixd -s ./contracts/ --remix-ide https://remix.ethereum.org",
-    "ganache": "ganache-cli --networkId 5777 -q -f https://mainnet.infura.io/v3/31d99ba869424488ac90605233d4da0e -a ${ACCOUNT_AMOUNT:-10} -s 073d7998dc6d09246b656e9ba6048219cdf0bfaafac284e0f2b03dd23a2dfaebe17ff6a9173c7bd2e8473642dbc9fc6901ef7bee9c745639f7161a1e4579482d",
+    "ganache": "ganache-cli --networkId 5777 -l 40000000 -q -f https://mainnet.infura.io/v3/31d99ba869424488ac90605233d4da0e -a ${ACCOUNT_AMOUNT:-10} -s 073d7998dc6d09246b656e9ba6048219cdf0bfaafac284e0f2b03dd23a2dfaebe17ff6a9173c7bd2e8473642dbc9fc6901ef7bee9c745639f7161a1e4579482d",
     "migrate": "truffle migrate"
   },
   "author": "",

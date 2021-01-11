@@ -8,9 +8,14 @@ interface IParamStorage{
 
 }
 
-interface IPositionManager {
+interface IPositionTool {
     function preparePosition(address paramStorage, address basicToken, address toToken, uint256 amount, uint256 deadline) external returns (uint256);
     function openPosition(address paramStorage, address basicToken, address toToken, uint256 amount, uint256 deadline) external returns (uint256, uint256);
-    function closePosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) external returns (uint256, uint256);
+    function splitPosition(address paramStorage, address basicToken, address toToken, uint256 amount, uint256 deadline) external returns (uint256, uint256);
+    function rewardPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) external returns (uint256, uint256);
     function exitPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) external returns (uint256,uint256);
+}
+
+interface IPositionToolManager{
+    function getPositionTool(uint8 _index) external view returns (address);
 }

@@ -1,6 +1,7 @@
 
 const ExchangePositionManager = artifacts.require("ExchangePositionManager");
-const UniswapPositionManager = artifacts.require("UniswapPositionManager");
+const TraderPoolFactory = artifacts.require("TraderPoolFactory");
+const ParamKeeper = artifacts.require("ParamKeeper");
 const TraderPool = artifacts.require("TraderPool");
 const TestToken = artifacts.require("TestToken");
 const UniswapFactory = artifacts.require("IUniswapV2Factory");
@@ -31,45 +32,67 @@ contract('TraderPool', (accounts) => {
     let WEthAddress;
     let TraderToken;
     let traderpool;
-    let TraderEth;
+    let traderpoolETH;
     let pairAddress;
     let TraderLPT;
+    let traderpoolETHLPT;
     let exchangePositionManager;
     let uniswapPositionManager;
 
+    let traderTemplateContact;
+    let traderPoolFactory;
+    let paramKeeper;
+
+    let traderWallet;
+
     before(async () => {
         assert.isAtLeast(accounts.length, 10, 'User accounts must be at least 10');
+        traderWallet = accounts[9];
+
         await TestToken.new('Test USDT', 'USDT', {from: accounts[0]}).then(instance => basicToken = instance);
         await TestToken.new('Test DAI', 'DAI', {from: accounts[0]}).then(instance => anotherToken = instance);
-        //uniswapRouterAddress,
-        //uniTokenAddress
 
-        // await TraderToken.new({from: accounts[0]}).then(instance => TraderToken = instance);
-        await TraderPool.new(basicToken.address, {from: accounts[0]}).then(instance => traderpool = instance);
+
+        let traderTemplateContact =  await TraderPool.new( {from: accounts[0]});
+        let receipt = await web3.eth.getTransactionReceipt(traderTemplateContact.transactionHash);
+
+        // let tdlres = await TraderPool.new( {from: accounts[0]}).then(instance => traderTemplateContact = instance);
+        console.log("TraderPool deploy GasUsed: ",receipt.gasUsed.toString());
+
+        await ParamKeeper.new( {from: accounts[0]}).then(instance => paramKeeper = instance);
+        await paramKeeper.setParamAddress.sendTransaction(toBN(1000), uniswapRouterAddress);
+        await paramKeeper.setParamAddress.sendTransaction(toBN(1001), uniswapFactoryAddress);
+        //insurance address
+        await paramKeeper.setParamAddress.sendTransaction(toBN(101), accounts[8]);
+        //dexe commission address
+        await paramKeeper.setParamAddress.sendTransaction(toBN(102), accounts[8]);
+        await ExchangePositionManager.new({from: accounts[0]}).then(instance => exchangePositionManager = instance);
+        await paramKeeper.setPositionTool.sendTransaction(toBN(0),exchangePositionManager.address);
+        //global whitelist
+        await paramKeeper.whitelistToken.sendTransaction(anotherToken.address);
+
+        //deploy trader pool factory
+        await TraderPoolFactory.new( traderTemplateContact.address, paramKeeper.address, paramKeeper.address, {from: accounts[0]}).then(instance => traderPoolFactory = instance);
+        
+        // deploy trader pool for testing with basicToken
+        let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicToken.address, toBN(0),toBN(3), toBN(10), true);
+        let contract3Address = createResult.logs[0].args[0];
+        console.log("TraderPool deployed at ", contract3Address, "Gas consumed", createResult.receipt.gasUsed.toString());
+
+        traderpool = await TraderPool.at(contract3Address);
         TraderLPT = await traderpool.plt.call().then(result => TestToken.at(result));
 
-        await ExchangePositionManager.new({from: accounts[0]}).then(instance => exchangePositionManager = instance);
-        await traderpool.setPositionManager.sendTransaction(toBN(0),exchangePositionManager.address);
+        //deploy WETH based traderpool    
+        let createResult2 = await traderPoolFactory.createTraderContract(traderWallet, wethAddress, toBN(0),toBN(3), toBN(10), true);
 
-        await UniswapPositionManager.new({from: accounts[0]}).then(instance => uniswapPositionManager = instance);
-        await traderpool.setPositionManager.sendTransaction(toBN(1),uniswapPositionManager.address);
+        let contractETHAddress = createResult2.logs[0].args[0];
+        console.log("TraderPool deployed at ", contractETHAddress, "Gas consumed", createResult2.receipt.gasUsed.toString());
 
-        await traderpool.setParamAddress.sendTransaction(toBN(1000), uniswapRouterAddress);
-        await traderpool.setParamAddress.sendTransaction(toBN(1001), uniswapFactoryAddress);
-        await traderpool.setParamAddress.sendTransaction(toBN(2000), uniswapFactoryAddress);//staking address
-        await traderpool.setParamAddress.sendTransaction(toBN(2001), uniTokenAddress);//uni token address
-
-        uniswapRouter = await UniswapRouter.at(uniswapRouterAddress);
-
-        WEthAddress = await uniswapRouter.WETH.call();
-
-        console.log("WETH Address=", WEthAddress);
-        console.log("mainAccount=", mainAccount);
-
-        await TraderPool.new(WEthAddress, {from: accounts[0]}).then(instance => TraderEth = instance);
-        TraderETHLPT = await TraderEth.plt.call().then(result => TestToken.at(result));
-
+        traderpoolETH = await TraderPool.at(contractETHAddress);
+        traderpoolETHLPT = await traderpoolETH.plt.call().then(result => TestToken.at(result));  
+        //deploy uniswap pair for testing
         uniswapFactory = await UniswapFactory.at(uniswapFactoryAddress);
+        uniswapRouter = await UniswapRouter.at(uniswapRouterAddress);
 
         await uniswapFactory.createPair.sendTransaction(anotherToken.address, basicToken.address)
             .then(() => uniswapFactory.getPair(basicToken.address, anotherToken.address))
@@ -77,6 +100,12 @@ contract('TraderPool', (accounts) => {
 
         
     });
+
+    it('should setup paramKeeper', async () => {
+        // await paramKeeper.setParamAddress.sendTransaction(toBN(1000), uniswapRouterAddress);
+        // await paramKeeper.setParamAddress.sendTransaction(toBN(1001), uniswapFactoryAddress);
+    
+        });
 
     it('should deposit using Ethereum native coin', async () => {
         let account1 = accounts[1];
@@ -86,16 +115,16 @@ contract('TraderPool', (accounts) => {
         let balance1Before = await web3.eth.getBalance(account1);
         let balance2Before = await web3.eth.getBalance(account2);
         console.log("BEFORE:",balance1Before,balance2Before,ethLiqAmount.toString());
-        await TraderEth.send(ethLiqAmount, {from: account1});
-        await TraderEth.depositETHTo.sendTransaction(account2, {from: account1, value: ethLiqAmount});
+        await traderpoolETH.send(ethLiqAmount, {from: account1});
+        await traderpoolETH.depositETHTo.sendTransaction(account2, {from: account1, value: ethLiqAmount});
         let balance1After = await web3.eth.getBalance(account1);
         let balance2After = await web3.eth.getBalance(account2);
 
         assert.equal(toBN(balance1After).lt(toBN(balance1Before).sub(ethLiqAmount).sub(ethLiqAmount)), true);
         assert.equal(balance2After.toString(), balance1Before.toString());
 
-        let lptBalance1 = await TraderETHLPT.balanceOf.call(account1);
-        let lptBalance2 = await TraderETHLPT.balanceOf.call(account2);
+        let lptBalance1 = await traderpoolETHLPT.balanceOf.call(account1);
+        let lptBalance2 = await traderpoolETHLPT.balanceOf.call(account2);
         console.log("Balances: ",lptBalance1.toString(), lptBalance2.toString());
 
         assert.equal(ethLiqAmount.toString(), lptBalance1.toString());
@@ -110,14 +139,14 @@ contract('TraderPool', (accounts) => {
         let account2 = accounts[2];
 
         let balance1Before = await web3.eth.getBalance(account1);
-        let lptBalance1Before = await TraderETHLPT.balanceOf.call(account1);
+        let lptBalance1Before = await traderpoolETHLPT.balanceOf.call(account1);
         let balanceWithdrawn = lptBalance1Before.div(toBN(2));
 
-        await TraderETHLPT.approve.sendTransaction(TraderEth.address,balanceWithdrawn,{from: account1});
-        await TraderEth.withdrawETH.sendTransaction(balanceWithdrawn, {from: account1});
+        await traderpoolETHLPT.approve.sendTransaction(traderpoolETH.address,balanceWithdrawn,{from: account1});
+        await traderpoolETH.withdrawETH.sendTransaction(balanceWithdrawn, {from: account1});
         
         let balance1After = await web3.eth.getBalance(account1);
-        let lptBalance1After = await TraderETHLPT.balanceOf.call(account1);
+        let lptBalance1After = await traderpoolETHLPT.balanceOf.call(account1);
         console.log("Balances ETH: Before",balance1Before.toString(), " after ",balance1After.toString());
 
         assert.equal(lptBalance1After.toString(), lptBalance1Before.sub(balanceWithdrawn).toString());
@@ -125,9 +154,9 @@ contract('TraderPool', (accounts) => {
 
     });
 
-    it('should push liquidity to pair and init test balances', async () => {
-        let basicTokenAmount = toBN('36076072').mul(decimals);
-        let anotherTokenAmount = toBN('99660').mul(decimals);
+    it('should init Uniswap pool for basicToken/anotherToken', async () => {
+        let basicTokenAmount = toBN('36076072').mul(decimals);//USDT
+        let anotherTokenAmount = toBN('99660').mul(decimals);//ETH
         await basicToken.approve.sendTransaction(uniswapRouterAddress, basicTokenAmount);
         await anotherToken.approve.sendTransaction(uniswapRouterAddress, anotherTokenAmount);
         await uniswapRouter.addLiquidity.sendTransaction(
@@ -195,23 +224,7 @@ contract('TraderPool', (accounts) => {
         );
     });
 
-    it('should open position (addLiquidity to pool)', async () => {
-       
-        let prepareAmount = toBN('5050').mul(decimals);
-
-        //uint8 _manager,address _toToken, uint256 _amount, uint256 _deadline
-
-        // let resultPrepare = await traderpool.preparePosition.sendTransaction(
-        //     toBN(0),
-        //     anotherToken.address,
-        //     prepareAmount,
-        //     new Date().getTime() + (2 * 24 * 60 * 60 * 1000)
-        // );
-
-        let balanceAfterSwapB = await basicToken.balanceOf.call(traderpool.address);
-        let balanceAfterSwapA = await anotherToken.balanceOf.call(traderpool.address);
-
-        console.log("After Swap, (a,b) ", balanceAfterSwapA.toString(), balanceAfterSwapB.toString());
+    it('should open position (buy anotherToken)', async () => {
 
         //----------------------   
 
@@ -221,15 +234,21 @@ contract('TraderPool', (accounts) => {
         let reserveABefore = await anotherToken.balanceOf.call(pairAddress); 
 
         console.log("Pair Balance Before ",(reserveABefore).div(decimals).toString(),(reserveBBefore).div(decimals).toString());
+        console.log("Trader pool balance in basic token:",beforeBalance.div(decimals).toString());
 
         let deadline=new Date().getTime() + ( 20 * 60 * 1000);
+        let positionsLength = await traderpool.positionsLength.call();
+        console.log("Positions.length", positionsLength.toString());
+        assert.equal(positionsLength.toString(),toBN(0).toString(),"to positions before opening");
+
 
         let result = await traderpool.openPosition.sendTransaction(
             toBN(0),
             toBN(1),
             anotherToken.address,
             basicLiqAmount,
-            new Date().getTime() + (2 * 24 * 60 * 60 * 1000)
+            new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
+            {from: traderWallet}
         );
         
         console.log(`openPosition GasUsed: ${result.receipt.gasUsed} deadline = ${deadline}`);    
@@ -248,7 +267,7 @@ contract('TraderPool', (accounts) => {
         let token= result.logs[logIndex].args[2];
         let amountOpened= result.logs[logIndex].args[3];
         let liquidity= result.logs[logIndex].args[4];
-        console.log('POpened ',index.toString(),manager.toString(),token.toString(),amountOpened.div(decimals).toString(),liquidity.toString());
+        console.log('POpened ',index.toString(),manager.toString(),token.toString(),amountOpened.div(decimals).toString(),liquidity.div(decimals).toString());
 
         let afterBalance = await basicToken.balanceOf.call(traderpool.address);
         console.log('afterBalance ',afterBalance.toString());
@@ -263,7 +282,7 @@ contract('TraderPool', (accounts) => {
 
         console.log("Retreiving position...");
         // check reader method
-        let positiondata = await traderpool.positionAt.call(toBN(1));
+        let positiondata = await traderpool.positionAt.call(index);
         let managerView = positiondata[0];
         let amountOpenedView = positiondata[1];
         let liquidityView = positiondata[2];
@@ -276,10 +295,138 @@ contract('TraderPool', (accounts) => {
         assert.equal(tokenView.toString(), anotherToken.address.toString()," token address to be correctly set");
 
         let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
-        console.log("Trader balance in BaseToken",basicTokenTraderBefore.toString());
+        console.log("Trader balance in BaseToken after operation",basicTokenTraderBefore.toString());
     });
 
-    // it('should close position partially with a loss', async () => {
+    it('should close position partially with a loss', async () => {
+        let positionIndex=toBN(0);
+
+
+        let positiondata = await traderpool.positionAt.call(positionIndex);
+        let managerView = positiondata[0];
+        let amountOpenedView = positiondata[1];
+        let liquidityView = positiondata[2];
+        let tokenView = positiondata[3];
+        
+        let percentClosed = toBN(50);//50%
+
+        let liquidityClosed = liquidityView.mul(percentClosed).div(toBN(100));
+        let liquidityRemaining = liquidityView.sub(liquidityClosed);
+
+        let totalCapBefore = await traderpool.totalCap.call();
+        let basicTokenBalanceBefore = await basicToken.balanceOf.call(traderpool.address);
+
+        console.log("Liquidity: ",liquidityClosed.toString(), "out of",liquidityView.toString());
+
+        let result = await traderpool.exitPosition.sendTransaction(
+            positionIndex,
+            liquidityClosed,
+            new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
+            {from: traderWallet}
+        );
+
+        var logIndex=-1;
+
+        //event PositionClosed(uint16 index, uint8 manager, address token, uint256 amountClosed, uint256 liquidity, bool isProfit, uint256 finResB);
+        let index= result.logs[++logIndex].args[0];
+        let manager= result.logs[logIndex].args[1];
+        let token= result.logs[logIndex].args[2];
+        let amountClosed= result.logs[logIndex].args[3];
+        let liquidity= result.logs[logIndex].args[4];
+        let isProfit= result.logs[logIndex].args[5];
+        let finResB= result.logs[logIndex].args[6];
+
+        console.log('PClosed ',index.toString(),manager.toString(),token.toString(),amountClosed.div(decimals).toString(),liquidity.toString(),isProfit.toString(),finResB.div(decimals).toString());
+        
+        let basicTokenBalanceAfter = await basicToken.balanceOf.call(traderpool.address);
+        let totalCapAfter = await traderpool.totalCap.call();
+        //balance checks
+        assert.equal(basicTokenBalanceAfter.toString(),basicTokenBalanceBefore.add(amountClosed).toString(),"contract to receive closed tokens" );
+        assert.equal(isProfit,false,"Loss detected");
+        assert.equal(totalCapAfter.toString(), totalCapBefore.sub(finResB).toString(), "remaining totalCap to be correct");
+
+        //check remaining amounts on position record
+        let positiondataafter = await traderpool.positionAt.call(positionIndex);
+        let managerViewAfter = positiondataafter[0];
+        let amountOpenedViewAfter = positiondataafter[1];
+        let liquidityViewAfter = positiondataafter[2];
+        let tokenViewAfter = positiondataafter[3];
+        assert.equal(liquidityViewAfter.toString(), liquidityRemaining.toString(), "remaining liquidity in Position record to be correct");
+        //assert.equal(amountOpenedViewAfter.toString(), amountOpenedView.mul(percentClosed).div(toBN(100)).toString(), "remaining amountOpened in Position record to be correct");    
+        
+        
+        // console.log('LiquidityTokens amount=',ltBalance.toString());
+
+        // assert.notEqual(ltBalance.toString(), '0', 'Balance of pool\'s liquidity token must not be zero');
+    });
+
+    it('Should be able to add to Open Position when deposited', async () => {
+        let positiondataBefore = await traderpool.positionAt.call(toBN(0));
+        let managerViewBefore = positiondataBefore[0];
+        let amountOpenedViewBefore = positiondataBefore[1];
+        let liquidityViewBefore = positiondataBefore[2];
+        let tokenViewBefore = positiondataBefore[3];
+
+        console.log("OpenedAmtBefore",amountOpenedViewBefore.toString());
+
+        let depostiAmt = toBN('10000').mul(decimals);
+        //deposit
+        await basicToken.approve.sendTransaction(traderpool.address, depostiAmt);
+        await traderpool.depositTo.sendTransaction(depostiAmt, mainAccount);
+        //check Position Data
+        let positiondataAfter = await traderpool.positionAt.call(toBN(0));
+        let managerViewAfter = positiondataAfter[0];
+        let amountOpenedViewAfter = positiondataAfter[1];
+        let liquidityViewAfter = positiondataAfter[2];
+        let tokenViewAfter = positiondataAfter[3];
+        console.log("amountOpenedViewAfter",amountOpenedViewAfter.toString());
+
+        assert.equal(amountOpenedViewAfter.sub(amountOpenedViewBefore).toString(),depostiAmt.toString(),"Actual position to consume all deposited tokens");
+
+    });
+
+    // it('should swap tokens back and forth many times', async () => {
+    //     //target is 50M of funds turn around. need 80 operations like this.
+    //     let basicTokenSwapAmount = toBN('381000').mul(decimals);
+    //     let anotherTokenSwapAmount = toBN('1000').mul(decimals);
+
+    //     //assume all accounts already has test balances in tokens
+    //     let max=10;
+
+    //     for (let i = 1; i < max; i++) {
+    //         let account = accounts[i%accounts.length];
+            
+
+    //         await basicToken.approve.sendTransaction(uniswapRouter.address, basicTokenSwapAmount, {from: account});
+
+    //         await uniswapRouter.swapExactTokensForTokens(
+    //             basicTokenSwapAmount, '0',
+    //             [basicToken.address, anotherToken.address],
+    //             account,
+    //             new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
+    //             {from: account}
+    //         );
+
+    //         await anotherToken.approve.sendTransaction(uniswapRouter.address, anotherTokenSwapAmount, {from: account});
+
+    //         await uniswapRouter.swapExactTokensForTokens(
+    //             anotherTokenSwapAmount, '0',
+    //             [anotherToken.address, basicToken.address],
+    //             account,
+    //             new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
+    //             {from: account}
+    //         );
+
+    //         let balanceA = await anotherToken.balanceOf.call(account);
+    //         let balanceB = await basicToken.balanceOf.call(account);
+    //         console.log(i,' After swap balance: ',balanceA.toString(),', ',balanceB.toString());
+    //     }
+
+    // });
+
+    // it('should close position in full with a profit', async () => {
+    //     let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
+    //     console.log("Trader balance BEFORE in BaseToken",basicTokenTraderBefore.toString());
 
     //     let positiondata = await traderpool.positionAt.call(toBN(1));
     //     let managerView = positiondata[0];
@@ -287,7 +434,7 @@ contract('TraderPool', (accounts) => {
     //     let liquidityView = positiondata[2];
     //     let tokenView = positiondata[3];
         
-    //     let percentClosed = toBN(50);//50%
+    //     let percentClosed = toBN(100);//100%
 
     //     let liquidityClosed = liquidityView.mul(percentClosed).div(toBN(100));
     //     let liquidityRemaining = liquidityView.sub(liquidityClosed);
@@ -296,13 +443,25 @@ contract('TraderPool', (accounts) => {
     //     let basicTokenBalanceBefore = await basicToken.balanceOf.call(traderpool.address);
     //     let ltBalanceBefore = await TestToken.at(pairAddress).then(instance => instance.balanceOf.call(traderpool.address));
 
-    //     console.log("Liquidity: ",liquidityClosed.toString(), "out of",liquidityView.toString(), "balance",ltBalanceBefore.toString());
+    //     console.log("Liquidity: ",liquidityClosed.toString(), "out of",liquidityView.toString(), "balanceBefore",ltBalanceBefore.toString());
+
+    //     let reserveBBefore = await basicToken.balanceOf.call(pairAddress); 
+    //     let reserveABefore = await anotherToken.balanceOf.call(pairAddress); 
+
+    //     console.log("Pair Balance Before ",(reserveABefore).div(decimals).toString(),(reserveBBefore).div(decimals).toString());
+
 
     //     let result = await traderpool.closePosition.sendTransaction(
-    //         toBN(1),
-    //         liquidityClosed,
+    //         toBN(1), liquidityClosed,
     //         new Date().getTime() + (2 * 24 * 60 * 60 * 1000)
     //     );
+
+    //     let reserveBAfter = await basicToken.balanceOf.call(pairAddress);
+    //     let reserveAAfter = await anotherToken.balanceOf.call(pairAddress);
+
+    //     console.log("Pair Balance decrease: ",(reserveABefore.sub(reserveAAfter)).toString(),(reserveBBefore.sub(reserveBAfter)).toString()); 
+    //     console.log("Abs K=",(reserveABefore.sub(reserveAAfter)).mul(reserveBBefore.sub(reserveBAfter)).toString());    
+
 
     //     var logIndex=-1;
 
@@ -323,8 +482,14 @@ contract('TraderPool', (accounts) => {
     //     //balance checks
     //     assert.equal(ltBalanceAfter.toString(), liquidityRemaining.toString(), "remaining liquidity balance to be correct");
     //     assert.equal(basicTokenBalanceAfter.toString(),basicTokenBalanceBefore.add(amountClosed).toString(),"contract to receive closed tokens" );
-    //     assert.equal(isProfit,false,"Loss detected");
-    //     assert.equal(totalCapAfter.toString(), totalCapBefore.sub(finResB).toString(), "remaining totalCap to be correct");
+    //     assert.equal(isProfit,true,"Profit detected");
+
+    //     assert.equal(totalCapAfter.sub(totalCapBefore.add(finResB.mul(toBN(8)).div(toBN(10)))).lte(toBN(10)),true, "remaining totalCap to be correct");
+
+    //     // let externalCommissionAfter = await traderpool.externalCommissionBalance.call();
+    //     // assert.equal(externalCommissionAfter.sub(finResB.mul(toBN(3)).div(toBN(10))).lte(toBN(10)),true, "externalCommissionAfter to be correct");
+
+
 
     //     //check remaining amounts on position record
     //     let positiondataafter = await traderpool.positionAt.call(toBN(1));
@@ -333,207 +498,85 @@ contract('TraderPool', (accounts) => {
     //     let liquidityViewAfter = positiondataafter[2];
     //     let tokenViewAfter = positiondataafter[3];
     //     assert.equal(liquidityViewAfter.toString(), liquidityRemaining.toString(), "remaining liquidity in Position record to be correct");
-    //     //assert.equal(amountOpenedViewAfter.toString(), amountOpenedView.mul(percentClosed).div(toBN(100)).toString(), "remaining amountOpened in Position record to be correct");    
+    //     assert.equal(amountOpenedViewAfter.toString(), toBN(0).toString(), "remaining amountOpened in Position record to be correct");    
         
-        
+    //     let basicTokenTraderAfter= await basicToken.balanceOf.call(traderpool.address);
+    //     console.log("Trader balance AFTER in BaseToken",basicTokenTraderAfter.toString());
     //     // console.log('LiquidityTokens amount=',ltBalance.toString());
 
     //     // assert.notEqual(ltBalance.toString(), '0', 'Balance of pool\'s liquidity token must not be zero');
     // });
 
+    // it('should withdraw external commission', async () => {
+    //     let basicTokenBalanceBefore = await basicToken.balanceOf.call(traderpool.address);
+    //     let basicTokenBalanceBeforeTarget = await basicToken.balanceOf.call(mainAccount);
+    //     // let dexeCommissionBalance = await traderpool.dexeCommissionBalance.call();
 
-    it('should swap tokens back and forth many times', async () => {
-        //target is 50M of funds turn around. need 80 operations like this.
-        let basicTokenSwapAmount = toBN('381000').mul(decimals);
-        let anotherTokenSwapAmount = toBN('1000').mul(decimals);
+    //     // await traderpool.withdrawCommission.sendTransaction(dexeCommissionBalance);
 
-        //assume all accounts already has test balances in tokens
-        let max=10;
+    //     let traderCommissionBalance = await traderpool.traderCommissionBalance.call();
 
-        for (let i = 1; i < max; i++) {
-            let account = accounts[i%accounts.length];
-            
+    //     await traderpool.withdrawCommission.sendTransaction(traderCommissionBalance);
 
-            await basicToken.approve.sendTransaction(uniswapRouter.address, basicTokenSwapAmount, {from: account});
+    //     let basicTokenBalanceAfter = await basicToken.balanceOf.call(traderpool.address);
+    //     let basicTokenBalanceAfterTarget = await basicToken.balanceOf.call(mainAccount);
 
-            await uniswapRouter.swapExactTokensForTokens(
-                basicTokenSwapAmount, '0',
-                [basicToken.address, anotherToken.address],
-                account,
-                new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
-                {from: account}
-            );
+    //     // assert.equal(basicTokenBalanceAfterTarget.sub(basicTokenBalanceBeforeTarget).toString(),externalCommission.toString(),"Amount of tokens received to be correct");
+    //     // assert.equal(basicTokenBalanceBefore.sub(basicTokenBalanceAfter).toString(),externalCommission.toString(),"Amount of tokens withdraen to be correct");
 
-            await anotherToken.approve.sendTransaction(uniswapRouter.address, anotherTokenSwapAmount, {from: account});
+    //     let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
+    //     console.log("Trader balance in BaseToken",basicTokenTraderBefore.toString());
+    // });
 
-            await uniswapRouter.swapExactTokensForTokens(
-                anotherTokenSwapAmount, '0',
-                [anotherToken.address, basicToken.address],
-                account,
-                new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
-                {from: account}
-            );
+    // it('should withdraw deposit from Trader', async () => {
+    //     let lptBalance = await TraderLPT.balanceOf.call(mainAccount);
+    //     let basicTokenBalanceBefore = await basicToken.balanceOf.call(mainAccount);
+    //     let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
+    //     let anotherTokenTraderBefore = await anotherToken.balanceOf.call(traderpool.address);
+    //     let totalCap = await traderpool.totalCap.call();
+    //     let totalSupply = await TraderLPT.totalSupply.call();
 
-            let balanceA = await anotherToken.balanceOf.call(account);
-            let balanceB = await basicToken.balanceOf.call(account);
-            console.log(i,' After swap balance: ',balanceA.toString(),', ',balanceB.toString());
-        }
+    //     console.log("basicTokenTraderBefore",basicTokenTraderBefore.toString());
+    //     console.log("anotherTokenTraderBefore",anotherTokenTraderBefore.toString());
+    //     console.log("lptBalance",lptBalance.toString());
+    //     console.log("totalCap",totalCap.toString());
+    //     console.log("totalSupply",totalSupply.toString());
 
-    });
+    //     if(anotherTokenTraderBefore.gt(toBN(1))){
+    //         await traderpool.exitPosition.sendTransaction(toBN(1),anotherTokenTraderBefore, new Date().getTime() + (2 * 24 * 60 * 60 * 1000));
 
-    it('should close position in full with a profit', async () => {
-        let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
-        console.log("Trader balance BEFORE in BaseToken",basicTokenTraderBefore.toString());
+    //         let basicTokenTraderBefore2 = await basicToken.balanceOf.call(traderpool.address);
+    //         let anotherTokenTraderBefore2 = await anotherToken.balanceOf.call(traderpool.address);
+    //         let totalCap2 = await traderpool.totalCap.call();
+    //         console.log("basicTokenTraderBefore2",basicTokenTraderBefore2.toString());
+    //         console.log("anotherTokenTraderBefore2",anotherTokenTraderBefore2.toString());
+    //         console.log("totalCap2",totalCap2.toString());
+    //     }
 
-        let positiondata = await traderpool.positionAt.call(toBN(1));
-        let managerView = positiondata[0];
-        let amountOpenedView = positiondata[1];
-        let liquidityView = positiondata[2];
-        let tokenView = positiondata[3];
-        
-        let percentClosed = toBN(100);//100%
+    //     let lptToWithdraw = lptBalance.div(toBN('2'));
+    //     await TraderLPT.approve.sendTransaction(traderpool.address, lptToWithdraw, {from: mainAccount});
+    //     await traderpool.withdrawTo.sendTransaction(lptToWithdraw, mainAccount);
+    //     let basicTokenBalanceAfter = await basicToken.balanceOf.call(mainAccount);
+    //     console.log("withdrawn: ",basicTokenBalanceAfter.sub(basicTokenBalanceBefore).toString());
 
-        let liquidityClosed = liquidityView.mul(percentClosed).div(toBN(100));
-        let liquidityRemaining = liquidityView.sub(liquidityClosed);
+    //     assert(basicTokenBalanceAfter.gt(basicTokenBalanceBefore), `New balance must be greated than before, Current: ${basicTokenBalanceAfter.toString()}, Previous: ${basicTokenBalanceBefore.toString()}`);
 
-        let totalCapBefore = await traderpool.totalCap.call();
-        let basicTokenBalanceBefore = await basicToken.balanceOf.call(traderpool.address);
-        let ltBalanceBefore = await TestToken.at(pairAddress).then(instance => instance.balanceOf.call(traderpool.address));
+    //     var res = await traderpool.getUserData.call(mainAccount);
+    //     console.log("User stat", res[0].toString(), res[1].toString(), res[2].toString());
 
-        console.log("Liquidity: ",liquidityClosed.toString(), "out of",liquidityView.toString(), "balanceBefore",ltBalanceBefore.toString());
+    //     var res = await traderpool.getTotalValueLocked.call();
+    //     console.log("Contract stat", res[0].toString(), res[1].toString());
 
-        let reserveBBefore = await basicToken.balanceOf.call(pairAddress); 
-        let reserveABefore = await anotherToken.balanceOf.call(pairAddress); 
+    //     let contractTokens = await basicToken.balanceOf.call(traderpool.address);
+    //     console.log("Contract tokens",contractTokens.toString());
+    //     //adjust totalCap
+    //     await traderpool.adjustTotalCap.sendTransaction();
+    //     var res2 = await traderpool.getTotalValueLocked.call();
+    //     console.log("Contract stat after adjustment", res2[0].toString(), res2[1].toString());
 
-        console.log("Pair Balance Before ",(reserveABefore).div(decimals).toString(),(reserveBBefore).div(decimals).toString());
-
-
-        let result = await traderpool.closePosition.sendTransaction(
-            toBN(1), liquidityClosed,
-            new Date().getTime() + (2 * 24 * 60 * 60 * 1000)
-        );
-
-        let reserveBAfter = await basicToken.balanceOf.call(pairAddress);
-        let reserveAAfter = await anotherToken.balanceOf.call(pairAddress);
-
-        console.log("Pair Balance decrease: ",(reserveABefore.sub(reserveAAfter)).toString(),(reserveBBefore.sub(reserveBAfter)).toString()); 
-        console.log("Abs K=",(reserveABefore.sub(reserveAAfter)).mul(reserveBBefore.sub(reserveBAfter)).toString());    
-
-
-        var logIndex=-1;
-
-        //event PositionClosed(uint16 index, uint8 manager, address token, uint256 amountClosed, uint256 liquidity, bool isProfit, uint256 finResB);
-        let index= result.logs[++logIndex].args[0];
-        let manager= result.logs[logIndex].args[1];
-        let token= result.logs[logIndex].args[2];
-        let amountClosed= result.logs[logIndex].args[3];
-        let liquidity= result.logs[logIndex].args[4];
-        let isProfit= result.logs[logIndex].args[5];
-        let finResB= result.logs[logIndex].args[6];
-
-        console.log('PClosed ',index.toString(),manager.toString(),token.toString(),amountClosed.div(decimals).toString(),liquidity.toString(),isProfit.toString(),finResB.div(decimals).toString());
-        
-        let basicTokenBalanceAfter = await basicToken.balanceOf.call(traderpool.address);
-        let ltBalanceAfter = await TestToken.at(pairAddress).then(instance => instance.balanceOf.call(traderpool.address));
-        let totalCapAfter = await traderpool.totalCap.call();
-        //balance checks
-        assert.equal(ltBalanceAfter.toString(), liquidityRemaining.toString(), "remaining liquidity balance to be correct");
-        assert.equal(basicTokenBalanceAfter.toString(),basicTokenBalanceBefore.add(amountClosed).toString(),"contract to receive closed tokens" );
-        assert.equal(isProfit,true,"Profit detected");
-
-        assert.equal(totalCapAfter.sub(totalCapBefore.add(finResB.mul(toBN(8)).div(toBN(10)))).lte(toBN(10)),true, "remaining totalCap to be correct");
-
-        // let externalCommissionAfter = await traderpool.externalCommissionBalance.call();
-        // assert.equal(externalCommissionAfter.sub(finResB.mul(toBN(3)).div(toBN(10))).lte(toBN(10)),true, "externalCommissionAfter to be correct");
-
-
-
-        //check remaining amounts on position record
-        let positiondataafter = await traderpool.positionAt.call(toBN(1));
-        let managerViewAfter = positiondataafter[0];
-        let amountOpenedViewAfter = positiondataafter[1];
-        let liquidityViewAfter = positiondataafter[2];
-        let tokenViewAfter = positiondataafter[3];
-        assert.equal(liquidityViewAfter.toString(), liquidityRemaining.toString(), "remaining liquidity in Position record to be correct");
-        assert.equal(amountOpenedViewAfter.toString(), toBN(0).toString(), "remaining amountOpened in Position record to be correct");    
-        
-        let basicTokenTraderAfter= await basicToken.balanceOf.call(traderpool.address);
-        console.log("Trader balance AFTER in BaseToken",basicTokenTraderAfter.toString());
-        // console.log('LiquidityTokens amount=',ltBalance.toString());
-
-        // assert.notEqual(ltBalance.toString(), '0', 'Balance of pool\'s liquidity token must not be zero');
-    });
-
-    it('should withdraw external commission', async () => {
-        let basicTokenBalanceBefore = await basicToken.balanceOf.call(traderpool.address);
-        let basicTokenBalanceBeforeTarget = await basicToken.balanceOf.call(mainAccount);
-        // let dexeCommissionBalance = await traderpool.dexeCommissionBalance.call();
-
-        // await traderpool.withdrawCommission.sendTransaction(dexeCommissionBalance);
-
-        let traderCommissionBalance = await traderpool.traderCommissionBalance.call();
-
-        await traderpool.withdrawCommission.sendTransaction(traderCommissionBalance);
-
-        let basicTokenBalanceAfter = await basicToken.balanceOf.call(traderpool.address);
-        let basicTokenBalanceAfterTarget = await basicToken.balanceOf.call(mainAccount);
-
-        // assert.equal(basicTokenBalanceAfterTarget.sub(basicTokenBalanceBeforeTarget).toString(),externalCommission.toString(),"Amount of tokens received to be correct");
-        // assert.equal(basicTokenBalanceBefore.sub(basicTokenBalanceAfter).toString(),externalCommission.toString(),"Amount of tokens withdraen to be correct");
-
-        let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
-        console.log("Trader balance in BaseToken",basicTokenTraderBefore.toString());
-    });
-
-    it('should withdraw deposit from Trader', async () => {
-        let lptBalance = await TraderLPT.balanceOf.call(mainAccount);
-        let basicTokenBalanceBefore = await basicToken.balanceOf.call(mainAccount);
-        let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
-        let anotherTokenTraderBefore = await anotherToken.balanceOf.call(traderpool.address);
-        let totalCap = await traderpool.totalCap.call();
-        let totalSupply = await TraderLPT.totalSupply.call();
-
-        console.log("basicTokenTraderBefore",basicTokenTraderBefore.toString());
-        console.log("anotherTokenTraderBefore",anotherTokenTraderBefore.toString());
-        console.log("lptBalance",lptBalance.toString());
-        console.log("totalCap",totalCap.toString());
-        console.log("totalSupply",totalSupply.toString());
-
-        if(anotherTokenTraderBefore.gt(toBN(1))){
-            await traderpool.exitPosition.sendTransaction(toBN(1),anotherTokenTraderBefore, new Date().getTime() + (2 * 24 * 60 * 60 * 1000));
-
-            let basicTokenTraderBefore2 = await basicToken.balanceOf.call(traderpool.address);
-            let anotherTokenTraderBefore2 = await anotherToken.balanceOf.call(traderpool.address);
-            let totalCap2 = await traderpool.totalCap.call();
-            console.log("basicTokenTraderBefore2",basicTokenTraderBefore2.toString());
-            console.log("anotherTokenTraderBefore2",anotherTokenTraderBefore2.toString());
-            console.log("totalCap2",totalCap2.toString());
-        }
-
-        let lptToWithdraw = lptBalance.div(toBN('2'));
-        await TraderLPT.approve.sendTransaction(traderpool.address, lptToWithdraw, {from: mainAccount});
-        await traderpool.withdrawTo.sendTransaction(lptToWithdraw, mainAccount);
-        let basicTokenBalanceAfter = await basicToken.balanceOf.call(mainAccount);
-        console.log("withdrawn: ",basicTokenBalanceAfter.sub(basicTokenBalanceBefore).toString());
-
-        assert(basicTokenBalanceAfter.gt(basicTokenBalanceBefore), `New balance must be greated than before, Current: ${basicTokenBalanceAfter.toString()}, Previous: ${basicTokenBalanceBefore.toString()}`);
-
-        var res = await traderpool.getUserData.call(mainAccount);
-        console.log("User stat", res[0].toString(), res[1].toString(), res[2].toString());
-
-        var res = await traderpool.getTotalValueLocked.call();
-        console.log("Contract stat", res[0].toString(), res[1].toString());
-
-        let contractTokens = await basicToken.balanceOf.call(traderpool.address);
-        console.log("Contract tokens",contractTokens.toString());
-        //adjust totalCap
-        await traderpool.adjustTotalCap.sendTransaction();
-        var res2 = await traderpool.getTotalValueLocked.call();
-        console.log("Contract stat after adjustment", res2[0].toString(), res2[1].toString());
-
-        let contractTokens2 = await basicToken.balanceOf.call(traderpool.address);
-        console.log("Contract tokens",contractTokens2.toString());
-    });
+    //     let contractTokens2 = await basicToken.balanceOf.call(traderpool.address);
+    //     console.log("Contract tokens",contractTokens2.toString());
+    // });
 
     //********************************************* */
 

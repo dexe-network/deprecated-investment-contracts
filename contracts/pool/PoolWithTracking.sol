@@ -14,7 +14,7 @@ contract PoolWithTracking is Pool{
     mapping (address => PoolEntry) internal entries;
 
     constructor(address _basicToken) 
-        Pool (_basicToken) 
+        // Pool (_basicToken) 
     public {
     }
 
@@ -22,8 +22,8 @@ contract PoolWithTracking is Pool{
         return (entries[user].blocknumber, entries[user].amountLocked, entries[user].deposited, entries[user].withdrawn);
     }
 
-    function _afterDeposit(uint256 amount, address holder, address to) internal override {
-        entries[msg.sender].deposited = entries[msg.sender].deposited.add(amount);     
+    function _afterDeposit(uint256 amountDeposited, uint256 amountLiquidity, address holder, address to) internal override {
+        entries[msg.sender].deposited = entries[msg.sender].deposited.add(amountDeposited);     
     }
 
     function _afterWithdraw(uint256 amount, address holder, address to) internal override {

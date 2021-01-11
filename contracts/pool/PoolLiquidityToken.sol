@@ -5,5 +5,5 @@ import "../token/ERC20/ERC20Burnable.sol";
 import "../token/ERC20/ERC20Mintable.sol";
 
 contract PoolLiquidityToken is ERC20, ERC20Burnable, ERC20Mintable {
-    constructor() ERC20("_pool liquidity token", "_plt") public {}
+    constructor() ERC20("_trader liquidity token", "_tlt") public {}
 }

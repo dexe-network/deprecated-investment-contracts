@@ -1,7 +1,7 @@
 
 pragma solidity 0.6.6;
 
-import "./math/SafeMath.sol";
+// import "./math/SafeMath.sol";
 import "./token/ERC20/IERC20.sol";
 import "./token/ERC20/SafeERC20.sol";
 import "./assets/IPositionManager.sol";
@@ -11,9 +11,9 @@ import "./uniswap/UniswapV2Library.sol";
 /**
     UNISWAP based example. To be changed to 1inch later... 
  */
-contract ExchangePositionManager is IPositionManager {
+contract ExchangePositionManager is IPositionTool {
     
-    using SafeMath for uint256;
+    //using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
     constructor() public {
@@ -28,20 +28,22 @@ contract ExchangePositionManager is IPositionManager {
         address router = IParamStorage(paramStorage).getAddress(1000);
         require (router != address(0), "Router parameter to be defined");
         uint[] memory out = _swapTokens(router, basicToken, amount, toToken, deadline);
-            
         return (out[0],out[1]);
     }
 
-    function closePosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) override external returns (uint256,uint256){
-        address router = IParamStorage(paramStorage).getAddress(1000);
-        require (router != address(0), "Router parameter to be defined");
-        uint[] memory out = _swapTokens(router, toToken, liquidity, basicToken, deadline);
+    function splitPosition(address paramStorage, address basicToken, address toToken, uint256 amount, uint256 deadline) override external returns (uint256, uint256) {
+        return (0,0);
+    }
 
-        return (out[1],out[0]);
+    function rewardPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) override external returns (uint256,uint256){
+        return (0,0);
     }
 
     function exitPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) override external returns (uint256, uint256){
-        return (0,0);
+        address router = IParamStorage(paramStorage).getAddress(1000);
+        require (router != address(0), "Router parameter to be defined");
+        uint[] memory out = _swapTokens(router, toToken, liquidity, basicToken, deadline);
+        return (out[1],out[0]);
     }
 
     function _swapTokens(
