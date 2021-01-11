@@ -49,7 +49,9 @@ contract Pool{
         isFixedSupply = _isFixedSupply;
     }
 
-    //deposit functions
+    /**
+    * Deposit ETH by direct transfer. Converts to WETH immediately for further operations. Liquidity tokens are assigned to msg.sender address.  
+     */
     receive() payable external isWrappedEth {
         if(msg.sender != wETH){ //omit re-entrancy
             uint256 amount = msg.value;
@@ -58,6 +60,10 @@ contract Pool{
         }
     }
 
+    /**
+    * deposit ETH, converts to WETH and assigns Liquidity tokens to provided address
+    * @param to - address to assign liquidity tokens to
+     */
     function depositETHTo(
         address to
     ) payable external isWrappedEth {
@@ -66,6 +72,11 @@ contract Pool{
         _deposit(amount,to);
     }
 
+    
+    /**
+    * deposit ERC20 tokens function, assigns Liquidity tokens to provided address.
+    * @param to - address to assign liquidity tokens to
+    */
     function depositTo(
         uint256 amount,
         address to
@@ -74,6 +85,10 @@ contract Pool{
         _deposit(amount,to);
     }
 
+    /**
+    * deposit ERC20 tokens function, assigns Liquidity tokens to msg.sender address.
+    * @param to - address to assign liquidity tokens to
+    */
     function deposit(
         uint256 amount
     ) external {
@@ -81,12 +96,22 @@ contract Pool{
         _deposit(amount,msg.sender);
     }
 
-    //withdraw functions
-
+    
+    /**
+    * converts spefied amount of Liquidity tokens to Basic Token and returns to user (withdraw). The balance of the User (msg.sender) is decreased by specified amount of 
+    * Liquidity tokens. Resulted amount of tokens are transferred to msg.sender
+    * @param amount - amount of liquidity tokens to exchange to Basic token.
+     */
     function withdraw(uint256 amount) external{
         _withdraw(amount,msg.sender);
     }
 
+    /**
+    * converts spefied amount of Liquidity tokens to Basic Token and returns to user (withdraw). The balance of the User (msg.sender) is decreased by specified amount of Liquidity tokens. 
+    * Resulted amount of tokens are transferred to specified address
+    * @param amount - amount of liquidity tokens to exchange to Basic token.
+    * @param to - address to send resulted amount of tokens to
+     */
     function withdrawTo(
         uint256 amount,
         address to
@@ -94,10 +119,21 @@ contract Pool{
         _withdraw(amount,to);
     }
 
+    /**
+    * converts spefied amount of Liquidity tokens to WETH, unwraps it and returns to user (withdraw). The balance of the User (msg.sender) is decreased by specified amount of 
+    * Liquidity tokens specidied. Resulted amount of tokens are transferred to msg.sender
+    * @param amount - amount of liquidity tokens to exchange to ETH.
+     */
     function withdrawETH(uint256 amount) external isWrappedEth {
         _withdrawETH(amount, msg.sender);
     }
 
+    /**
+    * converts spefied amount of Liquidity tokens to WETH, unwraps it and returns to user (withdraw). The balance of the User (msg.sender) is decreased by specified amount of 
+    * Liquidity tokens specidied. Resulted amount of tokens are transferred to specified address
+    * @param amount - amount of liquidity tokens to exchange to ETH.
+    * @param to - address to send resulted amount of ETH to
+     */
     function withdrawETHTo(uint256 amount, address payable to) external isWrappedEth {
         _withdrawETH(amount, to);
     }
@@ -161,6 +197,9 @@ contract Pool{
         }
     }
 
+    /**
+    * returns amount of liquidity tokens assigned to users (for fixed supply pool this equals to amount sold, for variable supply pool this equals to amount of tokens minted)
+     */
     function totalSupply() public view returns(uint256) {
         IERC20 token = IERC20(plt);
         return isFixedSupply?(token.totalSupply().sub(token.balanceOf(address(this)))):token.totalSupply();

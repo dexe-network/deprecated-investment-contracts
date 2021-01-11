@@ -42,11 +42,22 @@ contract AssetManagerAB is ReentrancyGuard{
         positionToolManager = IPositionToolManager(_positiontoolmanager);
     }
 
-
+    /**
+    * returns amount of positions in Positions array. 
+     */
     function positionsLength() external view returns (uint256) {
         return positions.length;
     }
 
+    /**
+    * returns Posision data from arrat at the _index specified. return data:
+    *    1) manager - Position manager tool ID - the tool position was opened with.
+    *    2) amountOpened - the amount of Basic Tokens a position was opened with.
+    *    3) liquidity - the amount of Destination tokens received from exchange when position was opened.
+    *    4) token - the address of ERC20 token that position was opened to 
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+     */
+    
     function positionAt(uint16 _index) external view returns (uint8,uint256,uint256,address) {
         require(_index < positions.length);
         return (positions[_index].manager, positions[_index].amountOpened, positions[_index].liquidity, positions[_index].token);

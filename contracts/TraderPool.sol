@@ -66,6 +66,10 @@ contract TraderPool
     
     }
 
+    /**
+    * Init function. Invoked by the Factory when TraderPool is created. 
+    */
+
     function init(address _traderWallet, address _basicToken, address _pltAddress, bool _isFixedSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual) public onlyOwner 
     {
         _poolInit(_basicToken, _pltAddress, _isFixedSupply) ;
@@ -84,6 +88,9 @@ contract TraderPool
 
     }
 
+    /**
+    * Init function. Invoked by the Factory when TraderPool is created. 
+    */
     function init2(address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager) public onlyOwner {
         dexeCommissionAddress = _dexeComm;
         insuranceContractAddress = _insurance;
@@ -99,20 +106,37 @@ contract TraderPool
         _;
     }
 
+    /**
+    * adds new trader address (tokens received from this address considered to be the traders' tokens)
+     */
     function addTraderAddress (address _traderAddress) public onlyTrader {
         traderFundAddresses[_traderAddress] = true;
     }
 
+    /**
+    * removes trader address (tokens received from trader address considered to be the traders' tokens)
+    */
     function removeTraderAddress (address _traderAddress) public onlyTrader {
         delete traderFundAddresses[_traderAddress];
     }
 
-    //AssetManager
+    /**
+    * Prepare position for trade (not actually used, stays here for back compatibility.)
+    */
     function preparePosition(uint8 _manager, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256) {
         require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
         return _praparePosition(_manager, address(basicToken), _toToken, _amount, _deadline);
     }
 
+    /**
+    * Opens trading position. Swaps a specified amount of Basic Token to Destination Token. 
+    *
+    * @param _manager - the ID of the Position Manager contract that will execute trading operation
+    * @param _index - the index of the Position in the positions array. (closed positions can be overwritten by new positions to save some storage)
+    * @param _toToken - the address of the ERC20 token (destination token) to swap BasicToken to. 
+    * @param _amount - the amount of Basic Token to be swapped to destination token. 
+    * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
+    */
     function openPosition(uint8 _manager, uint16 _index, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256, uint256) {
         //apply whitelist
         require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
@@ -120,64 +144,110 @@ contract TraderPool
         // return 0;
     }
 
+    /**
+    * get Reward from the position (not actually used, stays here for back compatibility). Can be used in future
+     */
     function rewardPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
         return _rewardPosition(_index, address(basicToken), _ltAmount, _deadline);
     }
 
+    /**
+    * Exit trading position. Swaps a specified amount of Destination Token back to Basic Token and calculates finacial result (profit or loss), that affects pool totalCap param. 
+    *
+    * @param _index - the index of the Position in the positions array. 
+    * @param _ltAmount - the amount of Destination token to be swapped back (position can be partially closed, so this might not equal full LT amount of the position)
+    * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
+    */
     function exitPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
         return _exitPosition(_index, address(basicToken), _ltAmount, _deadline);
     }
 
+    /**
+    * method that adjusts totalCap higher to be equal to actual amount of BasicTokens on the balance of this smart contract. 
+     */
     function adjustTotalCap() public onlyTrader returns (uint256){
         return _adjustTotalCap();
     }
 
-    //interfaces IPositionToolManager
+    /**
+    * returns address of the PositionManager contract implementation. The functional contract that is used to operate positions. 
+    */
     function getPositionTool(uint8 _index) external view returns (address) {
         paramkeeper.getPositionTool(_index);
     }
 
-    //external commissions operations
+    /**
+    * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
+     */
     function withdrawTraderCommission(uint256 amount) public onlyTrader {
         require(amount <= traderCommissionBalance, "Amount to be less then external commission available to withdraw");
         basicToken.safeTransfer(traderCommissionAddress, amount);
         traderCommissionBalance = traderCommissionBalance.sub(amount);
     }
 
+    /**
+    * Set new traderCommission address. The address that trader receives his commission out from this contract. 
+     */
     function setTraderCommissionAddress(address _traderCommissionAddress) public onlyTrader {
         traderCommissionAddress = _traderCommissionAddress;
     }
 
     //TODO: apply governance here
+    /**
+    * set external commission percent in a form of natural fraction: _nom/_denom. 
+    */
     function setExternalCommissionPercent(uint8 _nom, uint8 _denom) public onlyOwner {
         require (_nom <= _denom, "Commission to be a natural fraction less then 1");
         traderCommissionPercentNom = _nom;
         traderCommissionPercentDenom = _denom;
     }
 
+    /**
+    * set contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
+     */
     function pause() onlyOwner public {
         super._pause();
     }
-
+    /**
+    * unpause the contract (enable deposit operations)
+     */
     function unpause() onlyOwner public {
         super._unpause();
     }
 
-    //interface IParamStorage 
+    /**
+    * @returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    * @param key - ID of address parameter;
+    */
     function getAddress(uint16 key) external override view returns (address){
         return paramkeeper.getAddress(key);
     }
-
+    /**
+    * @returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    * @param key - ID of uint256 parameter;
+    */
     function getUInt256(uint16 key) external override view returns (uint256){
         return paramkeeper.getUInt256(key);
     }
 
-    //Views
-
+    
+    /**
+    * returns the data of the User:
+    *    1) total amount of BasicTokens deposited (historical value)
+    *    2) total amount of BasicTokens withdrawn (historical value)
+    *    3) current amount of TraderPool liquidity tokens that User has on the balance. 
+    * @param holder - address of the User's wallet. 
+     */
     function getUserData(address holder) public view returns (uint256, uint256, uint256) {
         return (deposits[holder], withdrawals[holder], IERC20(plt).balanceOf(holder));
     }
 
+    /**
+    * returns total cap values for this contract: 
+    * 1) totalCap value - total capitalization, including profits and losses, denominated in BasicTokens. i.e. total amount of BasicTokens that porfolio is worhs of.
+    * 2) totalSupply of the TraderPool liquidity tokens (or total amount of trader tokens sold to Users). 
+    * Trader token current price = totalCap/totalSupply;
+    */
     function getTotalValueLocked() public view returns (uint256, uint256){
         return (totalCap, totalSupply());
     }
