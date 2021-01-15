@@ -1,9 +1,9 @@
-# DeXe Documentation. Methods' descrtiption (DRAFT) 
-#b21200113d #draft
-
+# DeXe Documentation. Methods' description 
+#b21200115d
+<!---
 {{TOC}}
 +++
-
+--->
 ## Methods
 
 ### Module *TraderPool.sol*
@@ -25,10 +25,6 @@ Init function. Invoked by the Factory when TraderPool is created.
 function init2(address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager) public onlyOwner
 ```
 Throws if called by any account other than the one with the Manager role granted.
-<!---```js
-modifier onlyTrader()
-```~~  
---->
 
 ---
 
@@ -236,20 +232,6 @@ Returns total cap values for this contract:
 * Trader token current price = totalCap/totalSupply;
 
 ---
-
-<!--
-
-~~``function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal override distribute profit between all users``~~
-
-~~``function _beforeDeposit(uint256 amountTokenSent, address sender, address holder) internal override``~~
-
-~~``function _afterDeposit(uint256 amountTokenSent, uint256 amountLiquidityGot, address sender, address holder) internal override``~~
-
-~~``function _beforeWithdraw(uint256 amountLiquidity, address holder, address receiver) internal override``~~
-
-~~``function _afterWithdraw(uint256 amountTokenReceived, address holder, address receiver) internal override``~~
-
--->
 
 <!--2nd File -->
 
