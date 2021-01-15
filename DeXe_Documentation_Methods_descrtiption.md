@@ -12,7 +12,7 @@ Path to module [contracts/TraderPool.sol](contracts/TraderPool.sol)
 
 #### *init*
 
-```js
+```solidity
 function init(address _traderWallet, address _basicToken, address _pltAddress, bool _isFixedSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual) public onlyOwner
 ```
 Init function. Invoked by the Factory when TraderPool is created.
@@ -21,7 +21,7 @@ Init function. Invoked by the Factory when TraderPool is created.
 
 #### *init2*
 
-```js
+```solidity
 function init2(address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager) public onlyOwner
 ```
 Throws if called by any account other than the one with the Manager role granted.
@@ -30,7 +30,7 @@ Throws if called by any account other than the one with the Manager role granted
 
 #### *addTraderAddress*
 
-```js
+```solidity
 function addTraderAddress (address _traderAddress) public onlyTrader
 ```
 Adds new trader address (tokens received from this address considered to be the traders' tokens)
@@ -39,7 +39,7 @@ Adds new trader address (tokens received from this address considered to be the 
 
 #### *removeTraderAddress*
 
-```js
+```solidity
 function removeTraderAddress (address _traderAddress) public onlyTrader
 ```
 Removes trader address (tokens received from trader address considered to be the traders' tokens)
@@ -48,7 +48,7 @@ Removes trader address (tokens received from trader address considered to be the
 
 #### *preparePosition*
 
-```js
+```solidity
 function preparePosition(uint8 _manager, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256)
 ```
 Prepare position for trade (not actually used, stays here for back compatibility.)
@@ -59,7 +59,7 @@ Prepare position for trade (not actually used, stays here for back compatibility
 
 #### *openPosition*
 
-```js
+```solidity
 function openPosition(uint8 _manager, uint16 _index, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256, uint256)
 ```
 Opens trading position. Swaps a specified amount of Basic Token to Destination Token. 
@@ -79,7 +79,7 @@ Opens trading position. Swaps a specified amount of Basic Token to Destination T
 #### *rewardPosition*
 
 
-```js
+```solidity
 function rewardPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256)
 ```
 Get *Reward* from the position (not actually used, stays here for back compatibility). Can be used in future
@@ -89,7 +89,7 @@ Get *Reward* from the position (not actually used, stays here for back compatibi
 
 #### *exitPosition*
 
-```js
+```solidity
 function exitPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256)
 ```
 
@@ -107,7 +107,7 @@ Exit trading position. Swaps a specified amount of Destination Token back to Bas
 
 #### *adjustTotalCap*
 
-```js
+```solidity
 function adjustTotalCap() public onlyTrader
 ```
 Method that adjusts `totalCap` higher to be equal to actual amount of *BasicTokens* on the balance of this smart contract. 
@@ -116,7 +116,7 @@ Method that adjusts `totalCap` higher to be equal to actual amount of *BasicToke
 
 #### *getPositionTool*
 
-```js
+```solidity
 function getPositionTool(uint8 _index) external view returns (address)
 ```
 Returns address of the PositionManager contract implementation. The functional contract that is used to operate positions. 
@@ -125,7 +125,7 @@ Returns address of the PositionManager contract implementation. The functional c
 
 #### *withdrawTraderCommission*
 
-```js
+```solidity
 function withdrawTraderCommission(uint256 amount) public onlyTrader
 ```
 Initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
@@ -134,7 +134,7 @@ Initiates withdraw of the Trader commission onto the Trader Commission address. 
 
 #### *setTraderCommissionAddress*
 
-```js
+```solidity
 function setTraderCommissionAddress(address _traderCommissionAddress) public onlyTrader 
 ```
 Set new `traderCommission` address. The address that trader receives his commission out from this contract. 
@@ -145,7 +145,7 @@ Set new `traderCommission` address. The address that trader receives his commiss
 
 #### *setExternalCommissionPercent*
 
-```js
+```solidity
 function setExternalCommissionPercent(uint8 _nom, uint8 _denom) public onlyOwner 
 ```
 Set external commission percent in a form of natural fraction: `_nom|_denom`. 
@@ -154,7 +154,7 @@ Set external commission percent in a form of natural fraction: `_nom|_denom`.
 
 #### *pause*
 
-```js
+```solidity
 function pause() onlyOwner public
 ```
 Set contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
@@ -163,7 +163,7 @@ Set contract on hold. Paused contract doesn't accepts Deposits but allows to wit
 
 #### *unpause*
 
-```js
+```solidity
 function unpause() onlyOwner public
 ```
 Unpause the contract (enable deposit operations)
@@ -173,7 +173,7 @@ Unpause the contract (enable deposit operations)
 
 #### *getAddress*
 
-```js
+```solidity
 function getAddress(uint16 key) external override view returns (address)
 ```
 Returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
@@ -188,7 +188,7 @@ Returns address parameter from central parameter storage operated by the platfor
 
 #### *getUInt256*
 
-```js
+```solidity
 function getUInt256(uint16 key) external override view returns (uint256)
 ```
 
@@ -204,7 +204,7 @@ Returns `uint256` parameter from central parameter storage operated by the platf
 
 #### *getUserData*
 
-```js
+```solidity
 function getUserData(address holder) public view returns (uint256, uint256, uint256)
 ```
 Returns the data of the User:
@@ -222,7 +222,7 @@ Returns the data of the User:
 
 #### *getTotalValueLocked*
 
-```js
+```solidity
 function getTotalValueLocked() public view returns (uint256, uint256)
 ```
 
@@ -241,7 +241,7 @@ Path to module [contracts/assets/AssetManagerAB.sol](contracts/assets/AssetManag
 
 #### *positionsLength*
 
-```js
+```solidity
 function positionsLength() external view returns (uint256) 
 ```
 Returns amount of positions in Positions array.
@@ -251,7 +251,7 @@ Returns amount of positions in Positions array.
 
 #### *positionAt*
 
-```js
+```solidity
 function positionAt(uint16 _index) external view returns (uint8,uint256,uint256,address)
 ```
 Returns *Position* data from arrat at the `_index` specified. 
@@ -274,7 +274,7 @@ Path to module [/contracts/pool/Pool.sol](/contracts/pool/Pool.sol)
 
 #### *receive*
 
-```js
+```solidity
 receive() payable external isWrappedEth
 ```
 
@@ -284,7 +284,7 @@ Deposit ETH by direct transfer. Converts to WETH immediately for further operati
 
 #### *depositETHTo*
 
-```js
+```solidity
 function depositETHTo(address to) payable external isWrappedEth
 ```
 Deposit ETH, converts to WETH and assigns Liquidity tokens to provided address.
@@ -299,7 +299,7 @@ Deposit ETH, converts to WETH and assigns Liquidity tokens to provided address.
 
 #### *depositTo*
 
-```js
+```solidity
 function depositTo(uint256 amount,address to) external
 ```
 Deposit ERC20 tokens function, assigns Liquidity tokens to provided address.
@@ -312,7 +312,7 @@ Deposit ERC20 tokens function, assigns Liquidity tokens to provided address.
 
 #### *deposit*
 
-```js
+```solidity
 function deposit(uint256 amount) external
 ```
 
@@ -329,7 +329,7 @@ Deposit ERC20 tokens function, assigns Liquidity tokens to `msg.sender` address.
 
 #### *withdraw*
 
-```js
+```solidity
 function withdraw(uint256 amount) external
 ```
 
@@ -346,7 +346,7 @@ Liquidity tokens. Resulted amount of tokens are transferred to `msg.sender`
 
 #### *withdrawTo*
 
-```js
+```solidity
 function withdrawTo(uint256 amount,address to) external
 ```
 
@@ -365,7 +365,7 @@ Resulted amount of tokens are transferred to specified address
 #### *withdrawETH*
 
 
-```js
+```solidity
 function withdrawETH(uint256 amount) external isWrappedEth
 ```
 
@@ -381,7 +381,7 @@ Converts spefied amount of Liquidity tokens to WETH, unwraps it and returns to u
 
 #### *withdrawETHTo*
 
-```js
+```solidity
 function withdrawETHTo(uint256 amount, address payable to) external isWrappedEth
 ```
 
@@ -396,7 +396,7 @@ converts spefied amount of Liquidity tokens to WETH, unwraps it and returns to u
 
 #### *totalSupply*
 
-```js
+```solidity
 function totalSupply() public view returns(uint256)
 ```
 
