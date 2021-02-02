@@ -5,7 +5,7 @@
 
 ---
 
-* [Smart Contracts](/DeXe_Documentation.SmartContracts.md)
+* [Smart Contracts](/Dexe_Documentation.SmartContracts.md)
 * [How Contracts Works](/DeXe_Documentation.HowContractsWorks.md)
 * [Ecosystem Participants](/DeXe_Documentation.Ecosystem.md)
 * [Pools](/DeXe_Documentation.Pools.md)
