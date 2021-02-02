@@ -7,14 +7,14 @@
 
 A *Smart Contract* is a computer program or a transaction protocol which is intended to automatically execute, control or document legally relevant events and actions according to the terms of a contract or an agreement. The objectives of smart contracts are the reduction of need in trusted intermediators, arbitrations and enforcement costs, fraud losses, as well as the reduction of malicious and accidental exceptions.
 
-
-~~*Smart Contracts* are applications that run on the Ethereum Virtual Machine. This is a decentralized “world computer”, where the computing power is provided by all those Ethereum nodes. Any nodes providing computing power are paid for that resource in Ether tokens.~~
+<!-- 
+~~*Smart Contracts* are applications that run on the Ethereum Virtual Machine. This is a decentralized “world computer”, where the computing power is provided by all those Ethereum nodes. Any nodes providing computing power are paid for that resource in Ether tokens.~~ -->
 
 *Smart contracts* can be used for many different things. Developers can create smart contracts that provide features to other smart contracts, similar to how software libraries work. Or smart contracts could simply be used as an application to store information on the Ethereum blockchain.
 
 The best way programming Contracts is *Solidity*, a *Javascript*-like language developed specifically for writing *Smart Contracts*.
 
-~~They’re named smart contracts because you can write “contracts” that are automatically executed when the requirements are met.~~
+<!-- ~~They’re named smart contracts because you can write “contracts” that are automatically executed when the requirements are met.~~ -->
 
 ![](img/img05.png)
 
