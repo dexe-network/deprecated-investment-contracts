@@ -29,33 +29,26 @@ contract TraderPoolUpgradeable
     //ACL
     //Manager is the person allowed to manage funds
     bytes32 public TRADER_ROLE;
-
-    address public traderCommissionAddress;
-    uint256 public traderCommissionBalance;
-
-    address public dexeCommissionAddress;
-    uint256 public dexeCommissionBalance;
-
-    uint8 public traderCommissionPercentNom;
-    uint8 public traderCommissionPercentDenom;
-
     bool public isActualOn;
 
+    address public traderCommissionAddress;
+    address public dexeCommissionAddress;
     address public insuranceContractAddress;
-
     ParamKeeper private paramkeeper;
 
-    //addresses that trader may fund from (funded from these addresses considered as a trader funds)
-    mapping (address => bool) traderFundAddresses;
-
-    //trader token address whitelist
-    mapping (address => bool) public traderWhitelist;
-
-    //funds on the contract that belongs to trader
+    uint256 public traderCommissionBalance;
+    uint256 public dexeCommissionBalance;
+    uint256 public traderCommissionPercentNom;
+    uint256 public traderCommissionPercentDenom;
+    uint256 public storageVersion;
+     //funds on the contract that belongs to trader
     uint256 public traderLiquidityBalance;
-
     //max traderTokenPrice that any investor ever bought
     int128 public maxDepositedTokenPrice;
+    //addresses that trader may fund from (funded from these addresses considered as a trader funds)
+    mapping (address => bool) traderFundAddresses;
+    //trader token address whitelist
+    mapping (address => bool) public traderWhitelist;
 
 
     function version() public view returns (uint256){
@@ -113,6 +106,7 @@ contract TraderPoolUpgradeable
         dexeCommissionAddress = iaddr[6];
         insuranceContractAddress = iaddr[7];
         paramkeeper = ParamKeeper(iaddr[4]);  
+        storageVersion = version();
     
     }
 

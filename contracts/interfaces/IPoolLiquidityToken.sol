@@ -8,5 +8,5 @@ interface IPoolLiquidityToken is IERC20Upgradeable{
     function mint(address to, uint256 amount) external;
     function burn(address from, uint256 amountLiquidity) external;
     // function decimals() external view returns (uint8);
-    function initialize(address _owner, uint256 _maxPoolTotalSupply) external;
+    function initialize(address _owner, uint256 _maxPoolTotalSupply, string calldata name_, string calldata symbol_) external;
 }

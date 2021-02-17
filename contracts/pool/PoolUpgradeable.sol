@@ -28,11 +28,10 @@ contract PoolUpgradeable is Initializable{
     using SafeERC20Upgradeable for IERC20Token;
     using SafeMathUpgradeable for uint256;
 
-    address public wETH;
-
-    IERC20Token public basicToken;
+    address private wETH;
     address public plt;
     uint256 public totalCap;
+    IERC20Token public basicToken;
 
     mapping (address => uint256) public deposits;
     mapping (address => uint256) public withdrawals;

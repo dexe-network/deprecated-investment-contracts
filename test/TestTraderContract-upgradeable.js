@@ -75,7 +75,7 @@ contract('TraderPool', (accounts) => {
         traderPoolFactory = await TraderPoolFactoryUpgradeable.at(traderPoolFactoryAddress);
 
         // deploy trader pool for testing with basicToken
-        let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicToken.address, toBN(0),toBN(3), toBN(10), true);
+        let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicToken.address, toBN(0),toBN(3), toBN(10), true,"Trader token 1","TRT1");
         console.log("createResult.logs.length = ",createResult.logs.length);
         for(var i=0;i<createResult.logs.length;i++){
             console.log("createResult.logs[",i,"].length = ",createResult.logs[i].args.length, " ", createResult.logs[i].args.toString());
@@ -93,7 +93,7 @@ contract('TraderPool', (accounts) => {
         console.log("wethAddres = ",wethAddress);
 
         //deploy WETH based traderpool    
-        let createResult2 = await traderPoolFactory.createTraderContract(traderWallet, wethAddress, toBN(0),toBN(3), toBN(10), true);
+        let createResult2 = await traderPoolFactory.createTraderContract(traderWallet, wethAddress, toBN(0),toBN(3), toBN(10), true,"Trader token 2","TRT2");
 
         let contractETHAddress = createResult2.logs[2].args[0];
         console.log("TraderPool deployed at ", contractETHAddress, "Gas consumed", createResult2.receipt.gasUsed.toString());
@@ -160,8 +160,6 @@ contract('TraderPool', (accounts) => {
         let weth = await TestToken.at(wethAddress);
 
         console.log("weth contract balance = ",(await weth.balanceOf.call(traderpoolETH.address)).toString()," required",balanceWithdrawn.toString());
-        console.log("internal weth address = ",(await traderpoolETH.wETH.call()));
-        console.log("internal basic token address = ",(await traderpoolETH.basicToken.call()));
 
         await traderpoolETHLPT.approve.sendTransaction(traderpoolETH.address,balanceWithdrawn,{from: account1});
         await traderpoolETH.withdrawETH.sendTransaction(balanceWithdrawn, {from: account1});
