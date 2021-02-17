@@ -1,38 +1,34 @@
 pragma solidity 0.6.6;
 
-import "./access/Ownable.sol";
-import "./access/AccessControl.sol";
-import "./math/SafeMath.sol";
-import "./math/ABDKMath64x64.sol";
-import "./utils/Pausable.sol";
-import "./token/ERC20/IERC20.sol";
-import "./token/ERC20/ERC20Mintable.sol";
-import "./token/ERC20/ERC20Burnable.sol";
-import "./token/ERC20/SafeERC20.sol";
-import "./pool/Pool.sol";
-import "./assets/AssetManagerAB.sol";
+
+
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+
+
+import "./assets/AssetManagerUpgradeable.sol";
 import "./assets/IPositionManager.sol";
 import "./ParamKeeper.sol";
+import "./pool/PoolUpgradeable.sol";
+import "./math/ABDKMath64x64.sol";
+import "./interfaces/ITraderPoolInitializable.sol";
 
 
-
-contract TraderPool 
+contract TraderPoolUpgradeable 
     is 
-    Ownable, 
-    AccessControl, 
-    Pausable, 
-    Pool,
-    AssetManagerAB,
-    IParamStorage
+    AccessControlUpgradeable, 
+    PausableUpgradeable, 
+    PoolUpgradeable,
+    AssetManagerUpgradeable,
+    IParamStorage,
+    ITraderPoolInitializable
     {
 
-    using SafeMath for uint256;
     using ABDKMath64x64 for int128;
-    using SafeERC20 for IERC20;
 
     //ACL
     //Manager is the person allowed to manage funds
-    bytes32 public constant TRADER_ROLE = keccak256("TRADER_ROLE");
+    bytes32 public TRADER_ROLE;
 
     address public traderCommissionAddress;
     uint256 public traderCommissionBalance;
@@ -60,46 +56,76 @@ contract TraderPool
 
     //max traderTokenPrice that any investor ever bought
     int128 public maxDepositedTokenPrice;
-    
 
-    constructor() public {
-    
+
+    function version() public view returns (uint256){
+        //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
+        return 1000000;
     }
+    
+    function initialize(address[9] memory iaddr, uint[2] memory iuint, bool _actual) public override initializer{
+        /**
+        address[] iaddr = [
+            0... _admin,
+            1... _traderWallet,
+            2... _basicToken,
+            3... _weth,
+            4... _paramkeeper,
+            5... _positiontoolmanager,
+            6... _dexeComm,
+            7... _insurance,
+            8... _pltTokenAddress,
+            ]
+        uint256[] iuint = [
+            0... _maxPoolTotalSupply,
+            1... _tcNom,
+            2... _tcDenom,
+            ]
+         */
 
-    /**
-    * Init function. Invoked by the Factory when TraderPool is created. 
-    */
+        // address _basicToken, address _pltTokenAddress, address _weth
+        __Pool_init(iaddr[2],iaddr[8],iaddr[3]);
+        __ReentrancyGuard_init_unchained();
+        __Pausable_init_unchained();
+        __AccessControl_init_unchained();
+        // address _paramstorage, address _positiontoolmanager
+        __AssetManagerUpgradeable_init_unchained(address(this), iaddr[5]);
 
-    function init(address _traderWallet, address _basicToken, address _pltAddress, bool _isFixedSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual) public onlyOwner 
-    {
-        _poolInit(_basicToken, _pltAddress, _isFixedSupply) ;
+        // address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager
+        // address _traderWallet, address _basicToken, address _pltAddress, bool _isFixedSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual
+        
+        TRADER_ROLE = keccak256("TRADER_ROLE");
 
-        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        _setupRole(TRADER_ROLE, _traderWallet);
+        //access control initial setup
+        _setupRole(DEFAULT_ADMIN_ROLE, iaddr[0]);
+        _setupRole(TRADER_ROLE, iaddr[1]);
 
         //safe mode "on" with commissions
-        traderCommissionAddress = _traderWallet;
-        traderCommissionPercentNom = _tcNom;
-        traderCommissionPercentDenom = _tcDenom;
+        traderCommissionAddress = iaddr[1];
+        traderCommissionPercentNom = uint8(iuint[0]);
+        traderCommissionPercentDenom = uint8(iuint[1]);
+        require (iuint[1]>0, "Incorrect traderCommissionPercentDenom");
 
         isActualOn = _actual;
 
-        traderFundAddresses[_traderWallet] = true;
+        traderFundAddresses[iaddr[1]] = true;
 
+        dexeCommissionAddress = iaddr[6];
+        insuranceContractAddress = iaddr[7];
+        paramkeeper = ParamKeeper(iaddr[4]);  
+    
     }
 
     /**
-    * Init function. Invoked by the Factory when TraderPool is created. 
+    * @dev Throws if called by any account other than the one with the Admin role granted.
     */
-    function init2(address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager) public onlyOwner {
-        dexeCommissionAddress = _dexeComm;
-        insuranceContractAddress = _insurance;
-        paramkeeper = ParamKeeper(_paramkeeper);  
-        _assetManagerInit(address(this), _positiontoolmanager);      
+    modifier onlyAdmin() {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Caller is not the Admin");
+        _;
     }
 
     /**
-    * @dev Throws if called by any account other than the one with the Manager role granted.
+    * @dev Throws if called by any account other than the one with the Trader role granted.
     */
     modifier onlyTrader() {
         require(hasRole(TRADER_ROLE, msg.sender), "Caller is not the Trader");
@@ -206,7 +232,7 @@ contract TraderPool
     /**
     * set external commission percent in a form of natural fraction: _nom/_denom. 
     */
-    function setExternalCommissionPercent(uint8 _nom, uint8 _denom) public onlyOwner {
+    function setExternalCommissionPercent(uint8 _nom, uint8 _denom) public onlyAdmin {
         require (_nom <= _denom, "Commission to be a natural fraction less then 1");
         traderCommissionPercentNom = _nom;
         traderCommissionPercentDenom = _denom;
@@ -215,13 +241,13 @@ contract TraderPool
     /**
     * set contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
      */
-    function pause() onlyOwner public {
+    function pause() onlyAdmin public {
         super._pause();
     }
     /**
     * unpause the contract (enable deposit operations)
      */
-    function unpause() onlyOwner public {
+    function unpause() onlyAdmin public {
         super._unpause();
     }
 
@@ -239,7 +265,6 @@ contract TraderPool
     function getUInt256(uint16 key) external override view returns (uint256){
         return paramkeeper.getUInt256(key);
     }
-
     
     /**
     * returns the data of the User:
@@ -249,7 +274,7 @@ contract TraderPool
     * @param holder - address of the User's wallet. 
      */
     function getUserData(address holder) public view returns (uint256, uint256, uint256) {
-        return (deposits[holder], withdrawals[holder], IERC20(plt).balanceOf(holder));
+        return (deposits[holder], withdrawals[holder], IERC20Token(plt).balanceOf(holder));
     }
 
     /**

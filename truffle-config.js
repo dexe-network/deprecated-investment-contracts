@@ -1,10 +1,13 @@
 "use strict";
 const ApiKey = process.env.INFURA_API_KEY || require('./network_keys/api/infura');
+const { infuraApiKey, mnemonic } = require('./network_keys/secrets.json');
+const HDWalletProvider = require("@truffle/hdwallet-provider");
+
 const Infura = {
-  Mainnet: "https://mainnet.infura.io/v3/" + ApiKey,
-  Ropsten: "https://ropsten.infura.io/v3/" + ApiKey,
-  Rinkeby: "https://rinkeby.infura.io/v3/" + ApiKey,
-  Kovan: "https://kovan.infura.io/v3/" + ApiKey
+  Mainnet: "https://mainnet.infura.io/v3/" + infuraApiKey,
+  Ropsten: "https://ropsten.infura.io/v3/" + infuraApiKey,
+  Rinkeby: "https://rinkeby.infura.io/v3/" + infuraApiKey,
+  Kovan: "https://kovan.infura.io/v3/" + infuraApiKey
 };
 const Wallets = require('./network_keys/private/wallets');
 const Provider = require('truffle-privatekey-provider');
@@ -16,30 +19,30 @@ module.exports = {
       port: 8545,
       network_id: 5777, // Match Ganache(Truffle) network id
       //provider: () => new Provider('88197d4cac39375094dab1cfd7e302a0874a342ed6a1a965a8d8e4e381327eb1', 'http://127.0.0.1:8545'),
-      gas: 8000000,
+      gas: 10000000,
     },
     rinkeby: {
       network_id: 4,
-      provider: () => new Provider(Wallets.Rinkeby, Infura.Rinkeby),
-      gas: 4712388,
+      provider: () => new HDWalletProvider(mnemonic, Infura.Rinkeby),
+      gas: 10000000,
       gasPrice: '1000000000'
     },
     mainnet: {
       network_id: 1,
-      provider: () => new Provider(Wallets.Mainnet, Infura.Mainnet),
-      gas: 5000000,
+      provider: () => new HDWalletProvider(mnemonic, Infura.Mainnet),
+      gas: 10000000,
       gasPrice: '8000000000'
     },
     ropsten: {
       network_id: 3,
-      provider: () => new Provider(Wallets.Ropsten, Infura.Ropsten),
-      gas: 5000000,
+      provider: () => new HDWalletProvider(mnemonic, Infura.Ropsten),
+      gas: 10000000,
       gasPrice: '6000000000'
     },
     kovan: {
       network_id: 1,
-      provider: () => new Provider(Wallets.Kovan, Infura.Kovan),
-      gas: 5000000,
+      provider: () => new HDWalletProvider(mnemonic, Infura.Kovan),
+      gas: 10000000,
     }
   },
 

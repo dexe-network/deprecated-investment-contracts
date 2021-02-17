@@ -1,12 +1,20 @@
 pragma solidity 0.6.6;
 
-import "../math/SafeMath.sol";
-import "../token/ERC20/IERC20.sol";
-import "../token/ERC20/ERC20Mintable.sol";
-import "../token/ERC20/ERC20Burnable.sol";
-import "../token/ERC20/SafeERC20.sol";
-import "./PoolLiquidityToken.sol";
-import "./PoolLiquidityTokenFixed.sol";
+// import "../math/SafeMath.sol";
+// import "../token/ERC20/IERC20.sol";
+// import "../token/ERC20/ERC20Mintable.sol";
+// import "../token/ERC20/ERC20Burnable.sol";
+// import "../token/ERC20/SafeERC20.sol";
+// import "./PoolLiquidityToken.sol";
+// import "./PoolLiquidityTokenFixed.sol";
+
+import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
+
+import "../interfaces/IERC20Token.sol";
+import "../interfaces/IPoolLiquidityToken.sol";
 
 
 interface IWETH {
@@ -15,26 +23,22 @@ interface IWETH {
     function withdraw(uint) external;
 }
 
-contract Pool{
+contract PoolUpgradeable is Initializable{
 
-    using SafeMath for uint256;
-    using SafeERC20 for IERC20;
+    using SafeERC20Upgradeable for IERC20Token;
+    using SafeMathUpgradeable for uint256;
 
-    address public constant wETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address public wETH;
 
-    IERC20 public basicToken;
+    IERC20Token public basicToken;
     address public plt;
-
     uint256 public totalCap;
 
     mapping (address => uint256) public deposits;
     mapping (address => uint256) public withdrawals;
 
-    bool private isFixedSupply;
-
-
     modifier isWrappedEth() {
-        require(address(basicToken) == wETH);
+        require(address(basicToken) == wETH,"Not wrapped ETH contract");
         _;
     }
 
@@ -43,16 +47,30 @@ contract Pool{
     event Withdraw(address indexed who, uint256 amount);
 
 
-    function _poolInit(address _basicToken, address pltTokenAddress, bool _isFixedSupply) internal {
-        basicToken = IERC20(_basicToken);
-        plt = pltTokenAddress;
-        isFixedSupply = _isFixedSupply;
+    function __Pool_init(address _basicToken, address _pltTokenAddress, address _weth) internal initializer {
+        
+        __Pool_init_unchained(_basicToken,_pltTokenAddress, _weth);
     }
+
+    function __Pool_init_unchained(address _basicToken, address _pltTokenAddress, address _weth) internal initializer {
+        basicToken = IERC20Token(_basicToken);
+        plt = _pltTokenAddress;
+        wETH = _weth;
+    }
+
 
     /**
     * Deposit ETH by direct transfer. Converts to WETH immediately for further operations. Liquidity tokens are assigned to msg.sender address.  
      */
     receive() payable external isWrappedEth {
+        if(msg.sender != wETH){ //omit re-entrancy
+            uint256 amount = msg.value;
+            IWETH(wETH).deposit{value: amount}();
+            _deposit(amount,msg.sender);
+        }
+    }
+
+    fallback() payable external isWrappedEth{
         if(msg.sender != wETH){ //omit re-entrancy
             uint256 amount = msg.value;
             IWETH(wETH).deposit{value: amount}();
@@ -148,7 +166,7 @@ contract Pool{
     function _deposit(uint256 amount, address to) private {
         _beforeDeposit(amount, msg.sender, to);
         uint256 mintAmount = totalCap != 0 ? amount.mul(totalSupply()).div(totalCap) : amount;
-        _mintLiquidity(to, mintAmount);
+        IPoolLiquidityToken(plt).mint(to, mintAmount);
         totalCap = totalCap.add(amount);
         deposits[to] = deposits[to].add(amount);
         emit Deposit(to, amount);
@@ -160,7 +178,7 @@ contract Pool{
         uint256 revenue = totalSupply() != 0 ? amountLiquidity.mul(totalCap).div(totalSupply()) : amountLiquidity;
         require(revenue <= basicToken.balanceOf(address(this)), "Not enouth Basic Token tokens on the balance to withdraw");
         totalCap = totalCap.sub(revenue);
-        _burnLiquidity(msg.sender, amountLiquidity);
+        IPoolLiquidityToken(plt).burn(msg.sender, amountLiquidity);
         basicToken.safeTransfer(to, revenue);
         withdrawals[msg.sender] = withdrawals[msg.sender].add(revenue);
         emit Withdraw(msg.sender, revenue);
@@ -172,41 +190,26 @@ contract Pool{
         uint256 revenue = totalSupply() != 0 ? amountLiquidity.mul(totalCap).div(totalSupply()) : amountLiquidity;
         require(revenue <= basicToken.balanceOf(address(this)), "Not enouth Basic Token tokens on the balance to withdraw");
         totalCap = totalCap.sub(revenue);
-        _burnLiquidity(msg.sender, amountLiquidity);
-        IWETH(wETH).withdraw(revenue);
-        to.transfer(revenue);
+        IPoolLiquidityToken(plt).burn(msg.sender, amountLiquidity);
         withdrawals[msg.sender] = withdrawals[msg.sender].add(revenue);
+        basicToken.safeTransfer(to, revenue);
+        // IWETH(wETH).withdraw(revenue);
+        // to.transfer(revenue);
         emit Withdraw(msg.sender, revenue);
         _afterWithdraw(revenue, msg.sender, to);
-    }
-
-    function _mintLiquidity(address to, uint256 amount) private {
-        if(isFixedSupply){
-            IERC20(plt).safeTransfer(to, amount);
-        }else{
-            ERC20Mintable(plt).mintTo(to, amount);
-        }
-    }
-
-    function _burnLiquidity(address from, uint256 amount) private {
-        if(isFixedSupply){
-            IERC20(plt).safeTransferFrom(from, address(this), amount);
-        }else{
-            ERC20Burnable(plt).burnFrom(from, amount);
-        }
     }
 
     /**
     * returns amount of liquidity tokens assigned to users (for fixed supply pool this equals to amount sold, for variable supply pool this equals to amount of tokens minted)
      */
     function totalSupply() public view returns(uint256) {
-        IERC20 token = IERC20(plt);
-        return isFixedSupply?(token.totalSupply().sub(token.balanceOf(address(this)))):token.totalSupply();
+        return IPoolLiquidityToken(plt).totalSupply();
     }
 
     function _beforeDeposit(uint256 amountTokenSent, address sender, address holder) internal virtual {}
     function _afterDeposit(uint256 amountTokenSent, uint256 amountLiquidityGot, address sender, address holder) internal virtual {}
     function _beforeWithdraw(uint256 amountLiquidity, address holder, address receiver) internal virtual {}
     function _afterWithdraw(uint256 amountTokenReceived, address holder, address receiver) internal virtual {}
-
+    
+    uint256[10] private __gap;
 }

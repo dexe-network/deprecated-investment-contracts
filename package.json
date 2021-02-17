@@ -13,13 +13,15 @@
     "full-test": "concurrently --kill-others \"npm run ganache\" \"npm run test\"",
     "compile": "truffle compile",
     "remixd": "remixd -s ./contracts/ --remix-ide https://remix.ethereum.org",
-    "ganache": "ganache-cli --networkId 5777 -l 40000000 -q -f https://mainnet.infura.io/v3/31d99ba869424488ac90605233d4da0e -a ${ACCOUNT_AMOUNT:-10} -s 073d7998dc6d09246b656e9ba6048219cdf0bfaafac284e0f2b03dd23a2dfaebe17ff6a9173c7bd2e8473642dbc9fc6901ef7bee9c745639f7161a1e4579482d",
+    "ganache": "ganache-cli --networkId 5777 -l 40000000 -q -f https://mainnet.infura.io/v3/31d99ba869424488ac90605233d4da0e -a ${ACCOUNT_AMOUNT:-10} -s 50a41a049751cc9c6b5317dfb94ff1751a1111f7780e09fc34102a0ae6b974a0ec3e382327d9f0cbd8c56535b78caf35636e56eabf6dd5661ed9b54325cd54dc",
     "migrate": "truffle migrate"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@openzeppelin/contracts": "^3.1.0",
+    "@chainlink/contracts": "^0.0.8",
+    "@openzeppelin/contracts-upgradeable": "^3.3.0",
     "@uniswap/lib": "^1.1.4",
     "@uniswap/v2-periphery": "^1.1.0-beta.0",
     "chai": "^4.2.0",
@@ -32,6 +34,7 @@
     "tslib": "^2.0.1"
   },
   "devDependencies": {
+    "@truffle/hdwallet-provider": "^1.0.40",
     "concurrently": "^5.3.0"
   }
 }
