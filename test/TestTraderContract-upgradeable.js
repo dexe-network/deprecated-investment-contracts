@@ -319,6 +319,9 @@ contract('TraderPool', (accounts) => {
 
         let basicTokenTraderBefore = await basicToken.balanceOf.call(traderpool.address);
         console.log("Trader balance in BaseToken after operation",basicTokenTraderBefore.toString());
+
+        let portfolioCap = await traderpool.portfolioCap.call();
+        console.log("portfolioCap = ",portfolioCap.toString());
     });
 
     it('should close position partially with a loss', async () => {

@@ -68,6 +68,15 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
         return (positions[_index].manager, positions[_index].amountOpened, positions[_index].liquidity, positions[_index].token);
     }
 
+    function _totalPositionsCap(address _basicToken) internal view returns (uint256){
+        uint256 totalPositionsCap;
+        for(uint256 i=0;i<positions.length;i++){
+            IPositionTool _manager = IPositionTool(positionToolManager.getPositionTool(positions[i].manager));
+            totalPositionsCap = totalPositionsCap.add(_manager.positionCap(address(paramStorage), _basicToken, positions[i].token, positions[i].liquidity));
+        }
+        return totalPositionsCap;
+    }
+
     /**
     * @dev Prepares position and returns amount of tokens accepted during prepare call. This operation is stateless.
     */

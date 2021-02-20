@@ -245,6 +245,10 @@ contract TraderPoolUpgradeable
         super._unpause();
     }
 
+    function portfolioCap() external view returns (uint256){
+        return _totalPositionsCap(address(basicToken));
+    }
+
     /**
     * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
     * @param key - ID of address parameter;

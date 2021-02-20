@@ -14,6 +14,7 @@ interface IPositionTool {
     function splitPosition(address paramStorage, address basicToken, address toToken, uint256 amount, uint256 deadline) external returns (uint256, uint256);
     function rewardPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) external returns (uint256, uint256);
     function exitPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) external returns (uint256,uint256);
+    function positionCap(address paramStorage, address basicToken, address toToken, uint256 liquidity) external view returns (uint256);
 }
 
 interface IPositionToolManager{

@@ -46,6 +46,13 @@ contract ExchangePositionManager is IPositionTool {
         return (out[1],out[0]);
     }
 
+    function positionCap(address paramStorage, address basicToken, address toToken, uint256 liquidity) external override view returns (uint256){
+        address router = IParamStorage(paramStorage).getAddress(1000);
+        require (router != address(0), "Router parameter to be defined");
+        (uint reserveB, uint reserveA) = UniswapV2Library.getReserves(IUniswapV2Router01(router).factory(), basicToken, toToken);
+        return UniswapV2Library.getAmountOut(liquidity, reserveA, reserveB);
+    }
+
     function _swapTokens(
         address router,
         address fromToken,
