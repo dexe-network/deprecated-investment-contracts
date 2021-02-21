@@ -15,6 +15,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 
 import "../interfaces/IERC20Token.sol";
 import "../interfaces/IPoolLiquidityToken.sol";
+import "../math/ABDKMath64x64.sol";
 
 
 interface IWETH {
@@ -23,27 +24,33 @@ interface IWETH {
     function withdraw(uint) external;
 }
 
-contract PoolUpgradeable is Initializable{
+abstract contract PoolUpgradeable is Initializable{
 
     using SafeERC20Upgradeable for IERC20Token;
     using SafeMathUpgradeable for uint256;
+    using ABDKMath64x64 for int128;
 
     address private wETH;
     address public plt;
-    uint256 public totalCap;
+    // uint256 public totalCap;
+    uint256 public availableCap;
     IERC20Token public basicToken;
 
-    mapping (address => uint256) public deposits;
-    mapping (address => uint256) public withdrawals;
+    mapping (address => InvestorDepositData) public deposits;
+
+    struct InvestorDepositData {
+        uint256 amount;
+        int128 price;
+    }
 
     modifier isWrappedEth() {
         require(address(basicToken) == wETH,"Not wrapped ETH contract");
         _;
     }
 
-    event Deposit(address indexed who, uint256 amount);
+    event Deposit(address indexed who, uint256 amountBT, uint256 liquidity, int128 price);
 
-    event Withdraw(address indexed who, uint256 amount);
+    event Withdraw(address indexed who, uint256 amountBT, uint256 liquidity, uint256 commision);
 
 
     function __Pool_init(address _basicToken, address _pltTokenAddress, address _weth) internal initializer {
@@ -141,7 +148,7 @@ contract PoolUpgradeable is Initializable{
     * @param amount - amount of liquidity tokens to exchange to ETH.
      */
     function withdrawETH(uint256 amount) external isWrappedEth {
-        _withdrawETH(amount, msg.sender);
+        _withdraw(amount, msg.sender);
     }
 
     /**
@@ -151,52 +158,64 @@ contract PoolUpgradeable is Initializable{
     * @param to - address to send resulted amount of ETH to
      */
     function withdrawETHTo(uint256 amount, address payable to) external isWrappedEth {
-        _withdrawETH(amount, to);
+        _withdraw(amount, to);
     }
 
     /** Use with caution!
      */
-    function _adjustTotalCap() internal returns (uint256) {
-        if(basicToken.balanceOf(address(this)) > totalCap)
-            totalCap = basicToken.balanceOf(address(this));
-        return totalCap;
-    }
+    // function _adjustTotalCap() internal returns (uint256) {
+    //     if(basicToken.balanceOf(address(this)) > totalCap)
+    //         totalCap = basicToken.balanceOf(address(this));
+    //     return totalCap;
+    // }
 
     function _deposit(uint256 amount, address to) private {
         _beforeDeposit(amount, msg.sender, to);
-        uint256 mintAmount = totalCap != 0 ? amount.mul(totalSupply()).div(totalCap) : amount;
-        IPoolLiquidityToken(plt).mint(to, mintAmount);
-        totalCap = totalCap.add(amount);
-        deposits[to] = deposits[to].add(amount);
-        emit Deposit(to, amount);
-        _afterDeposit(amount, mintAmount,  msg.sender, to);
+        uint256 totalCap = _totalCap();
+        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
+        int128 currentTokenPrice = ABDKMath64x64.divu(totalCap, totalSupply);
+
+        uint256 liquidity = totalCap != 0 ? amount.mul(totalSupply).div(totalCap) : amount;
+        IPoolLiquidityToken(plt).mint(to, liquidity);
+        availableCap = availableCap.add(amount);
+        
+        deposits[to].price = ABDKMath64x64.divu(deposits[to].price.mulu(deposits[to].amount).add(currentTokenPrice.mulu(amount)),amount.add(deposits[to].amount));
+        deposits[to].amount = deposits[to].amount.add(amount);
+        
+        emit Deposit(to, amount, liquidity, currentTokenPrice);
+        _afterDeposit(amount, liquidity,  msg.sender, to, currentTokenPrice);
     }
 
     function _withdraw(uint256 amountLiquidity, address to) private {
         _beforeWithdraw(amountLiquidity, msg.sender, to);
-        uint256 revenue = totalSupply() != 0 ? amountLiquidity.mul(totalCap).div(totalSupply()) : amountLiquidity;
-        require(revenue <= basicToken.balanceOf(address(this)), "Not enouth Basic Token tokens on the balance to withdraw");
-        totalCap = totalCap.sub(revenue);
+        uint256 totalCap = _totalCap();
+        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
+        int128 currentTokenPrice = ABDKMath64x64.divu(totalCap, totalSupply);
+        uint256 revenue = totalSupply != 0 ? amountLiquidity.mul(totalCap).div(totalSupply) : amountLiquidity;
+        uint256 commision = _getWithdrawalCommission(amountLiquidity, msg.sender, currentTokenPrice);
+        uint256 paidOff = revenue.sub(commision);
+        require(paidOff <= availableCap, "Not enouth Basic Token tokens on the balance to withdraw");
+        availableCap = availableCap.sub(paidOff);
         IPoolLiquidityToken(plt).burn(msg.sender, amountLiquidity);
-        basicToken.safeTransfer(to, revenue);
-        withdrawals[msg.sender] = withdrawals[msg.sender].add(revenue);
-        emit Withdraw(msg.sender, revenue);
+        basicToken.safeTransfer(to, paidOff);
+        emit Withdraw(msg.sender, revenue, amountLiquidity, commision);
         _afterWithdraw(revenue, msg.sender, to);
     }
 
-    function _withdrawETH(uint256 amountLiquidity, address payable to) private {
-        _beforeWithdraw(amountLiquidity, msg.sender, to);
-        uint256 revenue = totalSupply() != 0 ? amountLiquidity.mul(totalCap).div(totalSupply()) : amountLiquidity;
-        require(revenue <= basicToken.balanceOf(address(this)), "Not enouth Basic Token tokens on the balance to withdraw");
-        totalCap = totalCap.sub(revenue);
-        IPoolLiquidityToken(plt).burn(msg.sender, amountLiquidity);
-        withdrawals[msg.sender] = withdrawals[msg.sender].add(revenue);
-        basicToken.safeTransfer(to, revenue);
-        // IWETH(wETH).withdraw(revenue);
-        // to.transfer(revenue);
-        emit Withdraw(msg.sender, revenue);
-        _afterWithdraw(revenue, msg.sender, to);
-    }
+    // function _withdrawETH(uint256 amountLiquidity, address payable to) private {
+    //     _beforeWithdraw(amountLiquidity, msg.sender, to);
+    //     uint256 totalCap = _totalCap();
+    //     uint256 revenue = totalSupply() != 0 ? amountLiquidity.mul(totalCap).div(totalSupply()) : amountLiquidity;
+    //     require(revenue <= availableCap), "Not enouth Basic Token tokens on the balance to withdraw");
+    //     availableCap = availableCap.sub(revenue);
+    //     IPoolLiquidityToken(plt).burn(msg.sender, amountLiquidity);
+    //     withdrawals[msg.sender] = withdrawals[msg.sender].add(revenue);
+    //     basicToken.safeTransfer(to, revenue);
+    //     // IWETH(wETH).withdraw(revenue);
+    //     // to.transfer(revenue);
+    //     emit Withdraw(msg.sender, revenue);
+    //     _afterWithdraw(revenue, msg.sender, to);
+    // }
 
     /**
     * returns amount of liquidity tokens assigned to users (for fixed supply pool this equals to amount sold, for variable supply pool this equals to amount of tokens minted)
@@ -206,9 +225,18 @@ contract PoolUpgradeable is Initializable{
     }
 
     function _beforeDeposit(uint256 amountTokenSent, address sender, address holder) internal virtual {}
-    function _afterDeposit(uint256 amountTokenSent, uint256 amountLiquidityGot, address sender, address holder) internal virtual {}
+    function _afterDeposit(uint256 amountTokenSent, uint256 amountLiquidityGot, address sender, address holder, int128 tokenPrice) internal virtual {}
     function _beforeWithdraw(uint256 amountLiquidity, address holder, address receiver) internal virtual {}
     function _afterWithdraw(uint256 amountTokenReceived, address holder, address receiver) internal virtual {}
+
+    
+    function _totalCap() internal virtual view returns (uint256);
+
+    function _tokenPrice() internal view returns (int128) {
+        return ABDKMath64x64.divu(_totalCap(), IPoolLiquidityToken(plt).totalSupply());
+    }
+
+    function _getWithdrawalCommission(uint256 liquidity, address holder, int128 tokenPrice) internal virtual view returns (uint256);
     
     uint256[10] private __gap;
 }

@@ -76,7 +76,7 @@ contract TraderPoolFactoryUpgradeable is AccessControlUpgradeable {
             ]
          */
     address[9] memory iaddr = [dexeAdmin, _traderWallet, _basicToken, wethAddress, address(paramkeeper),positionToolManager, getDexeCommissionAddress(),getInsuranceAddress(),poolTokenProxy];
-    uint256[2] memory iuint = [uint256(_tcNom),uint256(_tcDenom)];
+    uint256[4] memory iuint = [uint256(_tcNom),uint256(_tcDenom),uint256(_tcNom),uint256(_tcDenom)];
 
     ITraderPoolInitializable(traderContractProxy).initialize(iaddr, iuint, _actual);
     //

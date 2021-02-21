@@ -10,7 +10,6 @@ import "./assets/AssetManagerUpgradeable.sol";
 import "./assets/IPositionManager.sol";
 import "./ParamKeeper.sol";
 import "./pool/PoolUpgradeable.sol";
-import "./math/ABDKMath64x64.sol";
 import "./interfaces/ITraderPoolInitializable.sol";
 
 
@@ -24,23 +23,26 @@ contract TraderPoolUpgradeable
     ITraderPoolInitializable
     {
 
-    using ABDKMath64x64 for int128;
-
     //ACL
     //Manager is the person allowed to manage funds
     bytes32 public TRADER_ROLE;
     bool public isActualOn;
+    bool public isInvestorsWhitelistEnabled;
 
     address public traderCommissionAddress;
     address public dexeCommissionAddress;
     address public insuranceContractAddress;
     ParamKeeper private paramkeeper;
 
-    uint256 public traderCommissionBalance;
-    uint256 public dexeCommissionBalance;
+
     uint256 public traderCommissionPercentNom;
     uint256 public traderCommissionPercentDenom;
+    uint256 public investorCommissionPercentNom;
+    uint256 public investorCommissionPercentDenom;
     uint256 public storageVersion;
+
+    uint256 public traderCommissionBalance;
+    uint256 public dexeCommissionBalance;
      //funds on the contract that belongs to trader
     uint256 public traderLiquidityBalance;
     //max traderTokenPrice that any investor ever bought
@@ -49,6 +51,8 @@ contract TraderPoolUpgradeable
     mapping (address => bool) traderFundAddresses;
     //trader token address whitelist
     mapping (address => bool) public traderWhitelist;
+    //trader investor address whitelist
+    mapping (address => bool) public investorWhitelist;
 
 
     function version() public view returns (uint256){
@@ -56,7 +60,7 @@ contract TraderPoolUpgradeable
         return 1000000;
     }
     
-    function initialize(address[9] memory iaddr, uint[2] memory iuint, bool _actual) public override initializer{
+    function initialize(address[9] memory iaddr, uint[4] memory iuint, bool _actual) public override initializer{
         /**
         address[] iaddr = [
             0... _admin,
@@ -97,6 +101,8 @@ contract TraderPoolUpgradeable
         traderCommissionAddress = iaddr[1];
         traderCommissionPercentNom = uint8(iuint[0]);
         traderCommissionPercentDenom = uint8(iuint[1]);
+        investorCommissionPercentNom = uint8(iuint[2]);
+        investorCommissionPercentDenom= uint8(iuint[3]);
         require (iuint[1]>0, "Incorrect traderCommissionPercentDenom");
 
         isActualOn = _actual;
@@ -141,6 +147,31 @@ contract TraderPoolUpgradeable
     }
 
     /**
+    * adds new trader address (tokens received from this address considered to be the traders' tokens)
+     */
+    function addInvestorAddress (address[100] memory _investors) public onlyTrader {
+        for(uint i=0;i<100;i++){
+            if(_investors[i] != address(0))
+                investorWhitelist[_investors[i]] = true;
+            else
+                break;
+        }
+    }
+
+    /**
+    * removes trader address (tokens received from trader address considered to be the traders' tokens)
+    */
+    function removeInvestorAddress (address[100] memory _investors) public onlyTrader {
+        for(uint i=0;i<100;i++){
+            if(_investors[i] != address(0))
+                delete investorWhitelist[_investors[i]];
+            else
+                break;
+        }
+    }
+
+
+    /**
     * Prepare position for trade (not actually used, stays here for back compatibility.)
     */
     function preparePosition(uint8 _manager, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256) {
@@ -160,6 +191,8 @@ contract TraderPoolUpgradeable
     function openPosition(uint8 _manager, uint16 _index, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256, uint256) {
         //apply whitelist
         require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
+        uint256 maxAmount = this.getMaxPositionOpenAmount();
+        require(_amount <= maxAmount, "Amount reached maximum available");
         return _openPosition(_manager, _index, address(basicToken), _toToken, _amount, _deadline);
         // return 0;
     }
@@ -182,12 +215,12 @@ contract TraderPoolUpgradeable
         return _exitPosition(_index, address(basicToken), _ltAmount, _deadline);
     }
 
-    /**
-    * method that adjusts totalCap higher to be equal to actual amount of BasicTokens on the balance of this smart contract. 
-     */
-    function adjustTotalCap() public onlyTrader returns (uint256){
-        return _adjustTotalCap();
-    }
+    // /**
+    // * method that adjusts totalCap higher to be equal to actual amount of BasicTokens on the balance of this smart contract. 
+    //  */
+    // function adjustTotalCap() public onlyTrader returns (uint256){
+    //     return _adjustTotalCap();
+    // }
 
     /**
     * returns address of the PositionManager contract implementation. The functional contract that is used to operate positions. 
@@ -245,9 +278,23 @@ contract TraderPoolUpgradeable
         super._unpause();
     }
 
-    function portfolioCap() external view returns (uint256){
-        return _totalPositionsCap(address(basicToken));
+    function getMaxPositionOpenAmount() external view returns (uint256){
+        uint256 currentValuationBT = _totalPositionsCap(address(basicToken));
+        uint256 basicTokenUSDPrice = 1; //TODO put oracle here...
+        // l = 0.5*t*pUSD/1000
+        uint256 L = traderLiquidityBalance.mul(currentValuationBT).mul(basicTokenUSDPrice).div(totalSupply()).div(2000);
+        // maxQ =  (l+1)*t*p - w
+
+        uint256 maxQ = (L+1).mul(traderLiquidityBalance).mul(currentValuationBT).div(totalSupply());
+        maxQ = (maxQ > currentValuationBT)? maxQ.sub(currentValuationBT) : 0;
+
+        return maxQ;
     }
+
+
+    // function portfolioCap() external view returns (uint256){
+    //     return _totalPositionsCap(address(basicToken));
+    // }
 
     /**
     * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
@@ -267,12 +314,12 @@ contract TraderPoolUpgradeable
     /**
     * returns the data of the User:
     *    1) total amount of BasicTokens deposited (historical value)
-    *    2) total amount of BasicTokens withdrawn (historical value)
+    *    2) average traderToken price of the investor deposit (historical value)
     *    3) current amount of TraderPool liquidity tokens that User has on the balance. 
     * @param holder - address of the User's wallet. 
      */
-    function getUserData(address holder) public view returns (uint256, uint256, uint256) {
-        return (deposits[holder], withdrawals[holder], IERC20Token(plt).balanceOf(holder));
+    function getUserData(address holder) public view returns (uint256, int128, uint256) {
+        return (deposits[holder].amount, deposits[holder].price, IERC20Token(plt).balanceOf(holder));
     }
 
     /**
@@ -282,18 +329,24 @@ contract TraderPoolUpgradeable
     * Trader token current price = totalCap/totalSupply;
     */
     function getTotalValueLocked() public view returns (uint256, uint256){
-        return (totalCap, totalSupply());
+        return (_totalCap(), totalSupply());
+    }
+
+
+    function _totalCap() internal override view returns (uint256){
+        return _totalPositionsCap(address(basicToken)).add(availableCap);
     }
 
 
     //distribute profit between all users
     function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal override {
         //apply operation fin res to totalcap and calculate commissions
+        uint256 operationTraderCommission;
         if(isProfit){
 
-            uint256 operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
+            operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
 
-            int128 currentTokenPrice = ABDKMath64x64.divu(totalCap, totalSupply());
+            int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
             //apply trader commision fine if required
             if (currentTokenPrice < maxDepositedTokenPrice) {
                 int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
@@ -304,28 +357,25 @@ contract TraderPoolUpgradeable
             uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
             dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
             traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
-
-            totalCap = totalCap.add(finResB.sub(operationTraderCommission));
-        }else{
-            //decrease totalCap by operation loss result
-            //set totalCap to 1wei in case things went so bad... 
-            totalCap = (totalCap > finResB)?totalCap.sub(finResB):1;
+        } else {
+            operationTraderCommission = 0;
         }
 
+        availableCap = availableCap.add(finResB.sub(operationTraderCommission));
     }
 
     function _beforeDeposit(uint256 amountTokenSent, address sender, address holder) internal override {
         require(!paused(), "Cannot deposit when paused");
+        require(!isInvestorsWhitelistEnabled || investorWhitelist[msg.sender] || traderFundAddresses[msg.sender], "Investor not whitelisted");
     }
 
-    function _afterDeposit(uint256 amountTokenSent, uint256 amountLiquidityGot, address sender, address holder) internal override {
+    function _afterDeposit(uint256 amountTokenSent, uint256 amountLiquidityGot, address sender, address holder, int128 tokenPrice) internal override {
         // check if that was a trader who put a deposit
         if(traderFundAddresses[holder])
             traderLiquidityBalance = traderLiquidityBalance.add(amountLiquidityGot);
         // store max traderTokenPrice that any investor got in
-        int128 currentTokenPrice = ABDKMath64x64.divu(totalCap, totalSupply());
-        maxDepositedTokenPrice = (maxDepositedTokenPrice<currentTokenPrice)?currentTokenPrice:maxDepositedTokenPrice;
-        //TODO: for active position - distribute funds between positions.
+        maxDepositedTokenPrice = (maxDepositedTokenPrice<tokenPrice)?tokenPrice:maxDepositedTokenPrice;
+        //for active position - distribute funds between positions.
         if(isActualOn && positions.length > 0){
             uint256 totalOpened=0;
             for(uint i=0;i<positions.length;i++){
@@ -346,12 +396,26 @@ contract TraderPoolUpgradeable
 
     }
 
+    function _getWithdrawalCommission(uint256 liquidity, address holder, int128 tokenPrice) internal override view returns (uint256){
+        uint256 commision;
+        //applied for investors only. not for traders
+        if(tokenPrice > deposits[holder].price && !traderFundAddresses[holder]){
+            int128 priceDiff = tokenPrice.sub(deposits[holder].price);
+            commision = priceDiff.mulu(liquidity).mul(investorCommissionPercentNom).div(investorCommissionPercentDenom);
+        } else {
+            commision = 0;
+        }
+        return commision;
+    }
+
     function _beforeWithdraw(uint256 amountLiquidity, address holder, address receiver) internal override {
-        //TODO: release funds from positions
+        if(traderFundAddresses[holder]){
+            traderLiquidityBalance.sub(amountLiquidity);
+        }
     }
 
     function _afterWithdraw(uint256 amountTokenReceived, address holder, address receiver) internal override {
-        //TODO: aquire commission from user for withdrawal in case of protit
+       
     }
 
 
