@@ -5,6 +5,7 @@ import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 
 import "./IPositionManager.sol";
 
@@ -19,7 +20,10 @@ struct Position {
     address token;
 }
 
-contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
+contract AssetManagerUpgradeable 
+// is ReentrancyGuardUpgradeable
+is Initializable
+{
 
     using SafeMathUpgradeable for uint256;
 
@@ -38,7 +42,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
     event PositionExited(uint16 index, uint8 manager, address token, uint256 amountClosed, uint256 liquidity, bool isProfit, uint256 finResB);
 
     function __AssetManagerUpgradeable_init(address _paramstorage, address _positiontoolmanager) internal initializer {
-        __ReentrancyGuard_init_unchained();
+        // __ReentrancyGuard_init_unchained();
         __AssetManagerUpgradeable_init_unchained(_paramstorage,_positiontoolmanager);
     }
 
@@ -80,7 +84,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
     /**
     * @dev Prepares position and returns amount of tokens accepted during prepare call. This operation is stateless.
     */
-    function _praparePosition(uint8 _manager, address _basicToken, address _toToken, uint256 _amount, uint256 _deadline) internal nonReentrant returns (uint256) {
+    function _praparePosition(uint8 _manager, address _basicToken, address _toToken, uint256 _amount, uint256 _deadline) internal /**nonReentrant**/ returns (uint256) {
         require(positionToolManager.getPositionTool(_manager) != address(0),"PositionManager should not be zero address");
         bytes memory data = abi.encodeWithSelector(bytes4(keccak256("preparePosition(address,address,address,uint256,uint256)")),address(paramStorage),_basicToken,_toToken, _amount, _deadline);
         (bool success, bytes memory returnedData) = positionToolManager.getPositionTool(_manager).delegatecall(data);
@@ -93,7 +97,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
     /**
     * @dev opens position and returns position index
     */
-    function _openPosition(uint8 _manager, uint16 _index, address _basicToken, address _toToken, uint256 _amount, uint256 _deadline) internal nonReentrant returns (uint256, uint256) {
+    function _openPosition(uint8 _manager, uint16 _index, address _basicToken, address _toToken, uint256 _amount, uint256 _deadline) internal /**nonReentrant**/ returns (uint256, uint256) {
         require(positionToolManager.getPositionTool(_manager) != address(0),"PositionManager should not be zero address");
         require(_index >= positions.length || positions[_index].token == _toToken, "Position mismatch or index incorrect");
         require(address(paramStorage) != address(0), "ParamStorage to be defined");
@@ -120,7 +124,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
         /**
     * @dev opens position and returns position index
     */
-    function _splitPosition(uint8 _manager, uint16 _indexFrom, uint16 _indexTo, address _basicToken, address _toToken, uint256 _ltAmount, uint256 _deadline) internal nonReentrant returns (uint256) {
+    function _splitPosition(uint8 _manager, uint16 _indexFrom, uint16 _indexTo, address _basicToken, address _toToken, uint256 _ltAmount, uint256 _deadline) internal /**nonReentrant**/ returns (uint256) {
         require(positionToolManager.getPositionTool(_manager) != address(0),"PositionManager should not be zero address");
         require(_indexFrom < positions.length && positions[_indexFrom].amountOpened > 0, "Splitting positions not allowed for empty positions");
         require(_indexTo >= positions.length && positions[_indexTo].amountOpened == 0, "Overwriting positions not allowed while active");
@@ -140,7 +144,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
     /**
     * @dev closes position and returns position index
     */
-    function _rewardPosition(uint16 _index, address _basicToken,  uint256 _ltAmount, uint256 _deadline) internal nonReentrant returns (uint256){
+    function _rewardPosition(uint16 _index, address _basicToken,  uint256 _ltAmount, uint256 _deadline) internal /**nonReentrant**/ returns (uint256){
         require(_ltAmount <= positions[_index].liquidity, "Position liquidity amount is less then requested");
 
         uint256 receivedBAmount;
@@ -173,7 +177,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
      /**
     * @dev closes position and returns position index
     */
-    function _exitPosition(uint16 _index, address _basicToken,  uint256 _ltAmount, uint256 _deadline) internal nonReentrant returns (uint256){
+    function _exitPosition(uint16 _index, address _basicToken,  uint256 _ltAmount, uint256 _deadline) internal /**nonReentrant**/ returns (uint256){
         require(_index < positions.length,"index out of bound");
         require(_ltAmount<= positions[_index].liquidity,"liquidity overflow");
         require(positions[_index].liquidity > 0, "position to be opened");
@@ -222,7 +226,7 @@ contract AssetManagerUpgradeable is ReentrancyGuardUpgradeable{
     /**
     * @dev callback for applying financial result logic before Position data updated
     */
-    function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal virtual nonReentrant {}
+    function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal virtual /**nonReentrant**/ {}
 
 
 }

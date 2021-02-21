@@ -53,7 +53,7 @@ contract TraderPoolFactoryUpgradeable is AccessControlUpgradeable {
     dexeAdmin = _dexeAdmin;
   }
 
-  function createTraderContract(address _traderWallet, address _basicToken, uint256 _totalSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual,string memory name_, string memory symbol_) public returns (address){
+  function createTraderContract(address _traderWallet, address _basicToken, uint256 _totalSupply, uint8 _tcNom, uint8 _tcDenom, uint8 _icNom, uint8 _icDenom, bool _actual,string memory name_, string memory symbol_) public returns (address){
     address traderContractProxy = address(new BeaconProxy(traderContractBeaconAddress, bytes("")));
     address poolTokenProxy = address(new BeaconProxy(pltBeaconAddress, bytes("")));
     IPoolLiquidityToken(poolTokenProxy).initialize(traderContractProxy, _totalSupply,name_,symbol_ );
@@ -76,7 +76,7 @@ contract TraderPoolFactoryUpgradeable is AccessControlUpgradeable {
             ]
          */
     address[9] memory iaddr = [dexeAdmin, _traderWallet, _basicToken, wethAddress, address(paramkeeper),positionToolManager, getDexeCommissionAddress(),getInsuranceAddress(),poolTokenProxy];
-    uint256[4] memory iuint = [uint256(_tcNom),uint256(_tcDenom),uint256(_tcNom),uint256(_tcDenom)];
+    uint256[4] memory iuint = [uint256(_tcNom),uint256(_tcDenom),uint256(_icNom),uint256(_icDenom)];
 
     ITraderPoolInitializable(traderContractProxy).initialize(iaddr, iuint, _actual);
     //

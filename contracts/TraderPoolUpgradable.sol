@@ -82,7 +82,7 @@ contract TraderPoolUpgradeable
 
         // address _basicToken, address _pltTokenAddress, address _weth
         __Pool_init(iaddr[2],iaddr[8],iaddr[3]);
-        __ReentrancyGuard_init_unchained();
+        // __ReentrancyGuard_init_unchained();
         __Pausable_init_unchained();
         __AccessControl_init_unchained();
         // address _paramstorage, address _positiontoolmanager
@@ -413,10 +413,5 @@ contract TraderPoolUpgradeable
             traderLiquidityBalance.sub(amountLiquidity);
         }
     }
-
-    function _afterWithdraw(uint256 amountTokenReceived, address holder, address receiver) internal override {
-       
-    }
-
 
 }
