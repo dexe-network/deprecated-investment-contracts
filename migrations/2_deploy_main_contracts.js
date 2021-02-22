@@ -14,6 +14,19 @@ function toBN(number) {
   return web3.utils.toBN(number);
 }
 
+function printEvents(txResult, strdata){
+  console.log(strdata," events:",txResult.logs.length);
+  for(var i=0;i<txResult.logs.length;i++){
+      let argsLength = Object.keys(txResult.logs[i].args).length;
+      console.log("Event ",txResult.logs[i].event, "  length:",argsLength);
+      for(var j=0;j<argsLength;j++){
+          if(!(typeof txResult.logs[i].args[j] === 'undefined') && txResult.logs[i].args[j].toString().length>0)
+              console.log(">",i,">",j," ",txResult.logs[i].args[j].toString());
+      }
+  }
+
+}
+
 const decimals = toBN('10').pow(toBN('18'));
  
 module.exports = async function (deployer, network, accounts) {
@@ -22,7 +35,10 @@ module.exports = async function (deployer, network, accounts) {
   
   if(network == 'rinkeby'){
     uniswapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
-  }else if(network == 'test' || network =='mainnet'){
+  }else if(network == 'ropsten' || network == 'ropsten-fork'){
+    uniswapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
+  }
+  else if(network == 'test' || network =='mainnet'){
     uniswapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
   }
 
@@ -83,7 +99,20 @@ module.exports = async function (deployer, network, accounts) {
   await paramKeeper.setParamAddress.sendTransaction(toBN(1), factoryInstance.address);
   console.log("Factory inited");
 
+  if(true && (network == 'ropsten' || network == 'ropsten-fork')){
 
+    let traderWallet = accounts[0];
+    let basicTokenAddress = '0xad6d458402f60fd3bd25163575031acdce07538d';
+
+    let traderPoolFactoryAddress = await paramKeeper.getAddress.call(toBN(1));
+    traderPoolFactory = await TraderPoolFactoryUpgradeable.at(traderPoolFactoryAddress);
+
+    let commissions = [toBN(10),toBN(3),toBN(10),toBN(3), toBN(10),toBN(3)]; 
+
+    // deploy trader pool for testing with basicToken
+    let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicTokenAddress, toBN(0), commissions, true, false, "Trader token 1", "TRT1");
+    printEvents(createResult,"Trader Contract Deploy");
+  }
 
   
 };

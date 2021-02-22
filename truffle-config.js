@@ -36,7 +36,7 @@ module.exports = {
     ropsten: {
       network_id: 3,
       provider: () => new HDWalletProvider(mnemonic, Infura.Ropsten),
-      gas: 10000000,
+      gas: 5000000,
       gasPrice: '6000000000'
     },
     kovan: {
@@ -61,7 +61,7 @@ module.exports = {
       settings: {          // See the solidity docs for advice about optimization and evmVersion
        optimizer: {
          enabled: true,
-         runs: 999
+         runs: 200
        },
       //  evmVersion: "byzantium"
       }
