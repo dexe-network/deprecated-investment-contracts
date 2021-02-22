@@ -173,7 +173,7 @@ abstract contract PoolUpgradeable is Initializable{
         _beforeDeposit(amount, msg.sender, to);
         uint256 totalCap = _totalCap();
         uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
-        int128 currentTokenPrice = ABDKMath64x64.divu(totalCap, totalSupply);
+        int128 currentTokenPrice = totalSupply>0?ABDKMath64x64.divu(totalCap, totalSupply):ABDKMath64x64.fromUInt(1);
 
         uint256 liquidity = totalCap != 0 ? amount.mul(totalSupply).div(totalCap) : amount;
         IPoolLiquidityToken(plt).mint(to, liquidity);
@@ -190,7 +190,7 @@ abstract contract PoolUpgradeable is Initializable{
         _beforeWithdraw(amountLiquidity, msg.sender, to);
         uint256 totalCap = _totalCap();
         uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
-        int128 currentTokenPrice = ABDKMath64x64.divu(totalCap, totalSupply);
+        int128 currentTokenPrice = totalSupply>0?ABDKMath64x64.divu(totalCap, totalSupply):ABDKMath64x64.fromUInt(1);
         uint256 revenue = totalSupply != 0 ? amountLiquidity.mul(totalCap).div(totalSupply) : amountLiquidity;
         uint256 commision = _getWithdrawalCommission(amountLiquidity, msg.sender, currentTokenPrice);
         uint256 paidOff = revenue.sub(commision);
@@ -233,7 +233,9 @@ abstract contract PoolUpgradeable is Initializable{
     function _totalCap() internal virtual view returns (uint256);
 
     function _tokenPrice() internal view returns (int128) {
-        return ABDKMath64x64.divu(_totalCap(), IPoolLiquidityToken(plt).totalSupply());
+        uint256 totalCap = _totalCap();
+        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
+        return totalSupply>0?ABDKMath64x64.divu(totalCap, totalSupply):ABDKMath64x64.fromUInt(1);
     }
 
     function _getWithdrawalCommission(uint256 liquidity, address holder, int128 tokenPrice) internal virtual view returns (uint256);
