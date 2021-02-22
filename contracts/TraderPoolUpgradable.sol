@@ -282,10 +282,9 @@ contract TraderPoolUpgradeable
         uint256 currentValuationBT = _totalPositionsCap(address(basicToken));
         uint256 basicTokenUSDPrice = 1; //TODO put oracle here...
         // l = 0.5*t*pUSD/1000
-        uint256 L = traderLiquidityBalance.mul(currentValuationBT).mul(basicTokenUSDPrice).div(totalSupply()).div(2000);
+        uint256 L = traderLiquidityBalance.mul(basicTokenUSDPrice).mul(currentValuationBT.add(availableCap)).div(totalSupply()).div(2000).div(10**18);
         // maxQ =  (l+1)*t*p - w
-
-        uint256 maxQ = (L+1).mul(traderLiquidityBalance).mul(currentValuationBT).div(totalSupply());
+        uint256 maxQ = L.add(1).mul(traderLiquidityBalance).mul(currentValuationBT.add(availableCap)).div(totalSupply());
         maxQ = (maxQ > currentValuationBT)? maxQ.sub(currentValuationBT) : 0;
 
         return maxQ;
