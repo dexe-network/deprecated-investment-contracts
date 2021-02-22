@@ -87,8 +87,10 @@ contract('TraderPool', (accounts) => {
         let traderPoolFactoryAddress = await paramKeeper.getAddress.call(toBN(1));
         traderPoolFactory = await TraderPoolFactoryUpgradeable.at(traderPoolFactoryAddress);
 
+        let commissions = [toBN(10),toBN(3),toBN(100),toBN(40), toBN(50),toBN(25)]; 
+
         // deploy trader pool for testing with basicToken
-        let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicToken.address, toBN(0),toBN(3), toBN(10),toBN(3), toBN(10), true, "Trader token 1", "TRT1");
+        let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicToken.address, toBN(0), commissions, true, false, "Trader token 1", "TRT1");
         console.log("createResult.logs.length = ",createResult.logs.length);
         for(var i=0;i<createResult.logs.length;i++){
             console.log("createResult.logs[",i,"].length = ",createResult.logs[i].args.length, " ", createResult.logs[i].args.toString());
@@ -106,7 +108,7 @@ contract('TraderPool', (accounts) => {
         console.log("wethAddres = ",wethAddress);
 
         //deploy WETH based traderpool    
-        let createResult2 = await traderPoolFactory.createTraderContract(traderWallet, wethAddress, toBN(0),toBN(3), toBN(10), toBN(3), toBN(10), true,"Trader token 2","TRT2");
+        let createResult2 = await traderPoolFactory.createTraderContract(traderWallet, wethAddress, toBN(0),commissions, true, false, "Trader token 2","TRT2");
 
         let contractETHAddress = createResult2.logs[2].args[0];
         console.log("TraderPool deployed at ", contractETHAddress, "Gas consumed", createResult2.receipt.gasUsed.toString());
@@ -122,6 +124,16 @@ contract('TraderPool', (accounts) => {
             .then(pair => pairAddress = pair);
 
         
+    });
+
+    it('should set and read commissions', async () => {
+        for(let i=1;i<=3;i++){
+            let traderComm = await traderpoolETH.getCommission.call(toBN(i));
+            console.log("Commission ",i," - ", traderComm[0].toString(),"/", traderComm[1].toString());
+        }
+        
+        
+
     });
 
 

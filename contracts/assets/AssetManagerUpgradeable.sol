@@ -145,33 +145,34 @@ is Initializable
     * @dev closes position and returns position index
     */
     function _rewardPosition(uint16 _index, address _basicToken,  uint256 _ltAmount, uint256 _deadline) internal /**nonReentrant**/ returns (uint256){
-        require(_ltAmount <= positions[_index].liquidity, "Position liquidity amount is less then requested");
+        // require(_ltAmount <= positions[_index].liquidity, "Position liquidity amount is less then requested");
 
-        uint256 receivedBAmount;
-        uint256 liquidityBurned;
-        {
-            bytes memory data = abi.encodeWithSelector(bytes4(keccak256("rewardPosition(address,address,address,uint256,uint256)")),address(paramStorage),_basicToken,positions[_index].token,_ltAmount,_deadline);
-            (bool success, bytes memory returnedData) = positionToolManager.getPositionTool(positions[_index].manager).delegatecall(data);
-            require(success, "PositionManager.closePosition call failed");
-            (receivedBAmount,liquidityBurned)=abi.decode(returnedData, (uint256, uint256));
-        }
+        // uint256 receivedBAmount;
+        // uint256 liquidityBurned;
+        // {
+        //     bytes memory data = abi.encodeWithSelector(bytes4(keccak256("rewardPosition(address,address,address,uint256,uint256)")),address(paramStorage),_basicToken,positions[_index].token,_ltAmount,_deadline);
+        //     (bool success, bytes memory returnedData) = positionToolManager.getPositionTool(positions[_index].manager).delegatecall(data);
+        //     require(success, "PositionManager.closePosition call failed");
+        //     (receivedBAmount,liquidityBurned)=abi.decode(returnedData, (uint256, uint256));
+        // }
 
-        require(liquidityBurned <= positions[_index].liquidity, "Liquidity consumed by operation is too high");
-        //calculate Financial result of the (partial) position close 
-        //Deduct from Position opened amount. 
+        // require(liquidityBurned <= positions[_index].liquidity, "Liquidity consumed by operation is too high");
+        // //calculate Financial result of the (partial) position close 
+        // //Deduct from Position opened amount. 
         
-        uint256 amountOpenedPart = positions[_index].liquidity>0?positions[_index].amountOpened.mul(liquidityBurned).div(positions[_index].liquidity):0;
-        bool isProfit = amountOpenedPart < receivedBAmount;
-        uint256 finResB = isProfit?(receivedBAmount.sub(amountOpenedPart)):(amountOpenedPart.sub(receivedBAmount));
+        // uint256 amountOpenedPart = positions[_index].liquidity>0?positions[_index].amountOpened.mul(liquidityBurned).div(positions[_index].liquidity):0;
+        // bool isProfit = amountOpenedPart < receivedBAmount;
+        // uint256 finResB = isProfit?(receivedBAmount.sub(amountOpenedPart)):(amountOpenedPart.sub(receivedBAmount));
 
-        _callbackFinRes(_index, liquidityBurned, receivedBAmount, isProfit, finResB);
+        // _callbackFinRes(_index, liquidityBurned, receivedBAmount, isProfit, finResB);
 
-        positions[_index].liquidity = positions[_index].liquidity.sub(liquidityBurned);
-        positions[_index].amountOpened = positions[_index].amountOpened.sub(amountOpenedPart);
+        // positions[_index].liquidity = positions[_index].liquidity.sub(liquidityBurned);
+        // positions[_index].amountOpened = positions[_index].amountOpened.sub(amountOpenedPart);
 
-        emit PositionClosed(_index,positions[_index].manager,positions[_index].token,receivedBAmount,liquidityBurned,isProfit,finResB);
+        // emit PositionClosed(_index,positions[_index].manager,positions[_index].token,receivedBAmount,liquidityBurned,isProfit,finResB);
 
-        return receivedBAmount;
+        // return receivedBAmount;
+        return 0;
     }
 
      /**

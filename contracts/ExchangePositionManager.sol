@@ -25,9 +25,9 @@ contract ExchangePositionManager is IPositionTool {
 
     function openPosition(address paramStorage, address basicToken, address toToken, uint256 amount, uint256 deadline) override external returns (uint256, uint256){
         
-        address router = IParamStorage(paramStorage).getAddress(1000);
-        require (router != address(0), "Router parameter to be defined");
-        uint[] memory out = _swapTokens(router, basicToken, amount, toToken, deadline);
+        // address router = IParamStorage(paramStorage).getAddress(1000);
+        // require (router != address(0), "Router parameter to be defined");
+        uint[] memory out = _swapTokens(uniswapRouter(), basicToken, amount, toToken, deadline);
         return (out[0],out[1]);
     }
 
@@ -40,16 +40,16 @@ contract ExchangePositionManager is IPositionTool {
     }
 
     function exitPosition(address paramStorage, address basicToken, address toToken, uint256 liquidity, uint256 deadline) override external returns (uint256, uint256){
-        address router = IParamStorage(paramStorage).getAddress(1000);
-        require (router != address(0), "Router parameter to be defined");
-        uint[] memory out = _swapTokens(router, toToken, liquidity, basicToken, deadline);
+        // address router = IParamStorage(paramStorage).getAddress(1000);
+        // require (router != address(0), "Router parameter to be defined");
+        uint[] memory out = _swapTokens(uniswapRouter(), toToken, liquidity, basicToken, deadline);
         return (out[1],out[0]);
     }
 
     function positionCap(address paramStorage, address basicToken, address toToken, uint256 liquidity) external override view returns (uint256){
-        address router = IParamStorage(paramStorage).getAddress(1000);
-        require (router != address(0), "Router parameter to be defined");
-        (uint reserveB, uint reserveA) = UniswapV2Library.getReserves(IUniswapV2Router01(router).factory(), basicToken, toToken);
+        // address router = IParamStorage(paramStorage).getAddress(1000);
+        // require (router != address(0), "Router parameter to be defined");
+        (uint reserveB, uint reserveA) = UniswapV2Library.getReserves(IUniswapV2Router01(uniswapRouter()).factory(), basicToken, toToken);
         return UniswapV2Library.getAmountOut(liquidity, reserveA, reserveB);
     }
 
@@ -91,4 +91,9 @@ contract ExchangePositionManager is IPositionTool {
                 hex'96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f' // init code hash
             ))));
     }
+
+    function uniswapRouter() internal view returns (address){
+        return 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    }
+
 }

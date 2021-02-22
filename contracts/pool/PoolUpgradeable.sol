@@ -233,9 +233,9 @@ abstract contract PoolUpgradeable is Initializable{
     function _totalCap() internal virtual view returns (uint256);
 
     function _tokenPrice() internal view returns (int128) {
-        uint256 totalCap = _totalCap();
-        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
-        return totalSupply>0?ABDKMath64x64.divu(totalCap, totalSupply):ABDKMath64x64.fromUInt(1);
+        uint256 totalCapValue = _totalCap();
+        uint256 totalSupplyValue = IPoolLiquidityToken(plt).totalSupply();
+        return totalSupplyValue>0?ABDKMath64x64.divu(totalCapValue, totalSupplyValue):ABDKMath64x64.fromUInt(1);
     }
 
     function _getWithdrawalCommission(uint256 liquidity, address holder, int128 tokenPrice) internal virtual view returns (uint256);

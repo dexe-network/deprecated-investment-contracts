@@ -35,16 +35,16 @@ contract TraderPoolUpgradeable
     ParamKeeper private paramkeeper;
 
 
-    uint256 public traderCommissionPercentNom;
-    uint256 public traderCommissionPercentDenom;
-    uint256 public investorCommissionPercentNom;
-    uint256 public investorCommissionPercentDenom;
-    uint256 public storageVersion;
-
+    // uint256 public traderCommissionPercentNom;
+    // uint256 public traderCommissionPercentDenom;
+    // uint256 public investorCommissionPercentNom;
+    // uint256 public investorCommissionPercentDenom;
+    uint256 public commissions;
     uint256 public traderCommissionBalance;
     uint256 public dexeCommissionBalance;
      //funds on the contract that belongs to trader
     uint256 public traderLiquidityBalance;
+    uint128 public storageVersion;
     //max traderTokenPrice that any investor ever bought
     int128 public maxDepositedTokenPrice;
     //addresses that trader may fund from (funded from these addresses considered as a trader funds)
@@ -55,12 +55,12 @@ contract TraderPoolUpgradeable
     mapping (address => bool) public investorWhitelist;
 
 
-    function version() public view returns (uint256){
+    function version() public view returns (uint128){
         //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
         return 1000000;
     }
     
-    function initialize(address[9] memory iaddr, uint[4] memory iuint, bool _actual) public override initializer{
+    function initialize(address[9] memory iaddr, uint256 _commissions, bool _actual, bool _investorRestricted) public override initializer{
         /**
         address[] iaddr = [
             0... _admin,
@@ -99,13 +99,16 @@ contract TraderPoolUpgradeable
 
         //safe mode "on" with commissions
         traderCommissionAddress = iaddr[1];
-        traderCommissionPercentNom = uint8(iuint[0]);
-        traderCommissionPercentDenom = uint8(iuint[1]);
-        investorCommissionPercentNom = uint8(iuint[2]);
-        investorCommissionPercentDenom= uint8(iuint[3]);
-        require (iuint[1]>0, "Incorrect traderCommissionPercentDenom");
+
+        // traderCommissionPercentNom = uint8(iuint[0]);
+        // traderCommissionPercentDenom = uint8(iuint[1]);
+        // investorCommissionPercentNom = uint8(iuint[2]);
+        // investorCommissionPercentDenom= uint8(iuint[3]);
+        commissions = _commissions;
+        // require (iuint[1]>0, "Incorrect traderCommissionPercentDenom");
 
         isActualOn = _actual;
+        isInvestorsWhitelistEnabled = _investorRestricted;
 
         traderFundAddresses[iaddr[1]] = true;
 
@@ -259,10 +262,36 @@ contract TraderPoolUpgradeable
     /**
     * set external commission percent in a form of natural fraction: _nom/_denom. 
     */
-    function setExternalCommissionPercent(uint8 _nom, uint8 _denom) public onlyAdmin {
-        require (_nom <= _denom, "Commission to be a natural fraction less then 1");
-        traderCommissionPercentNom = _nom;
-        traderCommissionPercentDenom = _denom;
+    function setExternalCommissionPercent(uint256 _type, uint16 _nom, uint16 _denom) public onlyAdmin {
+        require (_denom > 0, "Incorrect denom");
+        require (_type == 1 || _type ==2 || _type == 3, "Incorrect type");
+        uint16[6] memory coms;
+        (coms[0],coms[1]) = _getCommission(1);
+        (coms[2],coms[3]) = _getCommission(2);
+        (coms[4],coms[5]) = _getCommission(3);  
+        if(_type == 1){
+            //trader
+            coms[0] = _nom;
+            coms[1] = _denom;
+        } else if (_type == 2) {
+            //investor
+            coms[2] = _nom;
+            coms[3] = _denom;
+        } else if (_type == 3) {
+            //dexe commission
+            coms[4] = _nom;
+            coms[5] = _denom;
+        } 
+        uint256 _commissions = 0;
+        _commissions = _commissions.add(coms[0]);
+        _commissions = _commissions.add(uint256(coms[1]) << 32);
+        _commissions = _commissions.add(uint256(coms[2]) << 64);
+        _commissions = _commissions.add(uint256(coms[3]) << 96);
+        _commissions = _commissions.add(uint256(coms[4]) << 128);
+        _commissions = _commissions.add(uint256(coms[5]) << 160);
+        //store
+        commissions = _commissions;
+
     }
 
     /**
@@ -331,6 +360,10 @@ contract TraderPoolUpgradeable
         return (_totalCap(), totalSupply());
     }
 
+    function getCommission(uint256 _type) external view returns (uint16,uint16){
+        return _getCommission(_type);
+    }
+
 
     function _totalCap() internal override view returns (uint256){
         return _totalPositionsCap(address(basicToken)).add(availableCap);
@@ -342,7 +375,7 @@ contract TraderPoolUpgradeable
         //apply operation fin res to totalcap and calculate commissions
         uint256 operationTraderCommission;
         if(isProfit){
-
+            (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
             operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
 
             int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
@@ -353,6 +386,7 @@ contract TraderPoolUpgradeable
                 operationTraderCommission = traderFine.mulu(operationTraderCommission);
             }
 
+            (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
             uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
             dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
             traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
@@ -400,6 +434,7 @@ contract TraderPoolUpgradeable
         //applied for investors only. not for traders
         if(tokenPrice > deposits[holder].price && !traderFundAddresses[holder]){
             int128 priceDiff = tokenPrice.sub(deposits[holder].price);
+            (uint16 investorCommissionPercentNom, uint16 investorCommissionPercentDenom) = _getCommission(2);
             commision = priceDiff.mulu(liquidity).mul(investorCommissionPercentNom).div(investorCommissionPercentDenom);
         } else {
             commision = 0;
@@ -413,4 +448,26 @@ contract TraderPoolUpgradeable
         }
     }
 
+ 
+    function _getCommission(uint256 _type) internal view returns (uint16,uint16){
+        uint16 denom;
+        uint16 _nom;
+        if(_type == 1){
+            //trader commission
+            denom = uint16(commissions & 0x00000000000000000000000000000000000000000000000000000000FFFFFFFF);
+            _nom = uint16((commissions & 0x000000000000000000000000000000000000000000000000FFFFFFFF00000000) >> 32);
+        } else if (_type == 2) {
+            //investor commission
+            denom =uint16((commissions & 0x0000000000000000000000000000000000000000FFFFFFFF0000000000000000) >> 64); 
+            _nom = uint16((commissions & 0x00000000000000000000000000000000FFFFFFFF000000000000000000000000) >> 96);
+        } else if (_type == 3) {
+            //dexe commission
+            denom =uint16((commissions & 0x000000000000000000000000FFFFFFFF00000000000000000000000000000000) >> 128); 
+            _nom = uint16((commissions & 0x0000000000000000FFFFFFFF0000000000000000000000000000000000000000) >> 160);
+        } else {
+            _nom = uint16(0);
+            denom = uint16(1);
+        }
+        return (_nom, denom);
+    }
 }
