@@ -5,7 +5,7 @@ import "./access/Ownable.sol";
 import "./access/AccessControl.sol";
 import "./assets/IPositionManager.sol";
 
-contract ParamKeeper is Ownable, AccessControl, IParamStorage, IPositionToolManager{
+contract ParamKeeper is Ownable, AccessControl, IParamStorage{
 
   bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
 
@@ -16,7 +16,10 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage, IPositionToolMana
   //uint params storage
   mapping (uint16 => uint256) public uintParams;
   //list of trading instruments by index 
-  mapping (uint8 => address) public instruments;
+  // mapping (uint8 => address) public instruments;
+  mapping (address => bool) public assetManagers;
+
+  address public priceFeeder;
 
   constructor() public {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
@@ -38,8 +41,17 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage, IPositionToolMana
     uintParams[_key] = _value;
   }
 
-  function setPositionTool(uint8 _index, address _instrument) public onlyManager {
-    instruments[_index] = _instrument;
+  // function setPositionTool(uint8 _index, address _instrument) public onlyManager {
+  //   assetManagers[_instrument] = true;
+  //   // instruments[_index] = _instrument;
+  // }
+
+  function addAssetManager(address _manager) public onlyManager {
+      assetManagers[_manager] = true;
+  }
+
+  function removeAssetManager(address _manager) public onlyManager {
+      delete assetManagers[_manager];
   }
 
   function whitelistToken(address _token) public onlyManager {
@@ -48,6 +60,10 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage, IPositionToolMana
 
   function delistToken(address _token) public onlyManager {
     delete globalWhitelist[_token];
+  }
+
+  function setPriceFeeder(address _pf) public onlyManager {
+    priceFeeder = _pf;
   }
 
   function getAddress(uint16 key) external override view returns (address){
@@ -62,8 +78,16 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage, IPositionToolMana
     return globalWhitelist[token];
   }
 
-  function getPositionTool(uint8 _index) external override view returns (address){
-    return instruments[_index];
+  function getPriceFeeder() public view returns (address) {
+    return priceFeeder;
+  }
+
+  // function getPositionTool(uint8 _index) external override view returns (address){
+  //   return instruments[_index];
+  // }
+
+  function isAllowedAssetManager(address _manager) public view returns (bool){
+     return assetManagers[_manager];
   }
 
 }

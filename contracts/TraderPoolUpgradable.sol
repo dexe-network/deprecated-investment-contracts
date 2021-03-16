@@ -6,21 +6,31 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 
-import "./assets/AssetManagerUpgradeable.sol";
+// import "./assets/AssetManagerUpgradeable.sol";
 import "./assets/IPositionManager.sol";
 import "./ParamKeeper.sol";
 import "./pool/PoolUpgradeable.sol";
 import "./interfaces/ITraderPoolInitializable.sol";
+import "./interfaces/IPriceFeeder.sol";
+import "./interfaces/IAssetManager.sol";
+import "./interfaces/ITraderPool.sol";
 
+struct Position {
+    //amount of tokens position was opened with
+    uint256 amountOpened;
+    //liquidity tokens equivalent of the position. When 0 => position closed.
+    uint256 liquidity;
+}
 
 contract TraderPoolUpgradeable 
     is 
     AccessControlUpgradeable, 
     PausableUpgradeable, 
     PoolUpgradeable,
-    AssetManagerUpgradeable,
+    // AssetManagerUpgradeable,
     IParamStorage,
-    ITraderPoolInitializable
+    ITraderPoolInitializable,
+    ITraderPool
     {
 
     //ACL
@@ -54,6 +64,14 @@ contract TraderPoolUpgradeable
     //trader investor address whitelist
     mapping (address => bool) public investorWhitelist;
 
+    //positions
+    mapping(address => uint256) pAmtOpened;
+    mapping(address => uint256) pAssetAmt;
+    address[] public assetTokenAddresses;
+
+    event Exchanged(address fromAsset, address toAsset, uint256 fromAmt, uint256 toAmt);
+    event Profit(uint256 amount);
+    event Loss(uint256 amount);
 
     function version() public view returns (uint128){
         //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
@@ -86,7 +104,7 @@ contract TraderPoolUpgradeable
         __Pausable_init_unchained();
         __AccessControl_init_unchained();
         // address _paramstorage, address _positiontoolmanager
-        __AssetManagerUpgradeable_init_unchained(address(this), iaddr[5]);
+        // __AssetManagerUpgradeable_init_unchained(address(this), iaddr[5]);
 
         // address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager
         // address _traderWallet, address _basicToken, address _pltAddress, bool _isFixedSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual
@@ -135,6 +153,14 @@ contract TraderPoolUpgradeable
         _;
     }
 
+      /**
+    * @dev Throws if called by any account other than the one with the onlyAssetManager role granted.
+    */
+    modifier onlyAssetManager() {
+        require(paramkeeper.isAllowedAssetManager(msg.sender), "Caller is not allwed AssetManager");
+        _;
+    }
+
     /**
     * adds new trader address (tokens received from this address considered to be the traders' tokens)
      */
@@ -174,63 +200,214 @@ contract TraderPoolUpgradeable
     }
 
 
-    /**
-    * Prepare position for trade (not actually used, stays here for back compatibility.)
-    */
-    function preparePosition(uint8 _manager, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256) {
-        require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
-        return _praparePosition(_manager, address(basicToken), _toToken, _amount, _deadline);
+    function initiateExchangeOperatation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata) public override onlyAssetManager {
+        require (fromAsset != toAsset, "incorrect asset params");
+        require (fromAsset != address(0), "incorrect fromAsset param");
+        require (toAsset != address(0), "incorrect toAsset param");
+        require(hasRole(TRADER_ROLE, caller), "Caller is not the Trader");
+        //1. check assetFrom price, multiply by amount, check resulting amount less then Leverage allowed. 
+        {
+            require(paramkeeper.isWhitelisted(toAsset) || traderWhitelist[toAsset] || toAsset == address(basicToken),"Position toToken address to be whitelisted");
+            uint256 maxAmount = this.getMaxPositionOpenAmount();
+            uint256 spendingAmount;
+            if(fromAsset == address(basicToken)) {
+                spendingAmount = fromAmt;
+            } else {
+                spendingAmount = pAmtOpened[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
+            }
+            require(spendingAmount <= maxAmount, "Amount reached maximum available");
+        }
+        uint256 fromSpent;
+        uint256 toGained; 
+        //2. perform exchange
+        {
+            uint256 fromAssetBalanceBefore = IERC20Upgradeable(fromAsset).balanceOf(address(this));
+            uint256 toAssetBalanceBefore = IERC20Upgradeable(toAsset).balanceOf(address(this));
+            IERC20Token(fromAsset).safeTransfer(msg.sender, fromAmt);
+            require(IAssetManager(msg.sender).execute(_calldata), "Asset manager execution failed");
+            fromSpent = fromAssetBalanceBefore.sub(IERC20Upgradeable(fromAsset).balanceOf(address(this)));
+            toGained = IERC20Upgradeable(toAsset).balanceOf(address(this)).sub(toAssetBalanceBefore);
+        }
+
+        emit Exchanged (fromAsset, toAsset, fromSpent, toGained);
+
+        //3. record positions changes & distribute profit
+        if(fromAsset == address(basicToken)) {
+            //open new position
+            if(pAmtOpened[toAsset] == 0){
+                assetTokenAddresses.push(toAsset);
+            }
+            pAmtOpened[toAsset] = pAmtOpened[toAsset].add(fromSpent);
+            pAssetAmt[toAsset] = pAssetAmt[toAsset].add(toGained);
+
+        } else if(toAsset == address(basicToken)){
+            uint256 pFromAmtOpened = pAmtOpened[fromAsset];
+            uint256 pFromLiq = pAssetAmt[fromAsset];
+
+            pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
+            uint256 originalSpentValue = pFromAmtOpened.mul(fromSpent).div(pFromLiq);
+            pAmtOpened[fromAsset] = pAmtOpened[fromAsset].sub(originalSpentValue);
+
+            //remove closed position
+            if(pAmtOpened[fromAsset] == 0){
+                _deletePosition(fromAsset);
+            } 
+
+            uint256 operationTraderCommission;
+            uint256 finResB;
+            //profit
+            if(originalSpentValue <= toGained) {
+                finResB = toGained.sub(originalSpentValue);
+
+                (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
+                operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
+
+                int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
+                //apply trader commision fine if required
+                if (currentTokenPrice < maxDepositedTokenPrice) {
+                    int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
+                    traderFine = traderFine.mul(traderFine);// ^2
+                    operationTraderCommission = traderFine.mulu(operationTraderCommission);
+                }
+
+                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
+                uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
+                dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
+                traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
+
+                emit Profit(finResB);
+            }
+            //loss 
+            else {
+                finResB = originalSpentValue.sub(toGained);
+                operationTraderCommission = 0;
+                emit Loss(finResB);
+            }
+            availableCap = availableCap.add(finResB.sub(operationTraderCommission));
+
+        } else {
+            // uint256 pFromAmtOpened = pAmtOpened[fromAsset];
+            uint256 pFromLiq = pAssetAmt[fromAsset];
+            // uint256 pToAmtOpened = pAmtOpened[toAsset];
+            uint256 pToLiq = pAssetAmt[toAsset];
+
+                //open new position
+            if(pAmtOpened[toAsset] == 0){
+                assetTokenAddresses.push(toAsset);
+            } 
+
+            pAmtOpened[fromAsset] = pAmtOpened[fromAsset].mul(pFromLiq.sub(fromSpent)).div(pFromLiq);
+            pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
+
+            pAmtOpened[toAsset] = pAmtOpened[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpened[toAsset]); 
+            pAssetAmt[toAsset] = pToLiq.add(toGained);
+
+            //remove closed position
+            if(pAmtOpened[fromAsset] == 0){
+                _deletePosition(fromAsset);
+            }        
+        }
+
+    }
+
+    function _deletePosition(address token) private {
+        require(assetTokenAddresses.length > 0, "Cannot delete from 0 length assetTokenAddresses array");
+        if(assetTokenAddresses[assetTokenAddresses.length-1] == token){
+            //do nothing
+        } else {
+            for(uint i=0; i<assetTokenAddresses.length-1; i++){
+                if(assetTokenAddresses[i] == token) {
+                    assetTokenAddresses[i] = assetTokenAddresses[assetTokenAddresses.length-1];
+                    break;
+                }
+            }
+        }
+        assetTokenAddresses.pop();
     }
 
     /**
-    * Opens trading position. Swaps a specified amount of Basic Token to Destination Token. 
-    *
-    * @param _manager - the ID of the Position Manager contract that will execute trading operation
-    * @param _index - the index of the Position in the positions array. (closed positions can be overwritten by new positions to save some storage)
-    * @param _toToken - the address of the ERC20 token (destination token) to swap BasicToken to. 
-    * @param _amount - the amount of Basic Token to be swapped to destination token. 
-    * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
-    */
-    function openPosition(uint8 _manager, uint16 _index, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256, uint256) {
-        //apply whitelist
-        require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
-        uint256 maxAmount = this.getMaxPositionOpenAmount();
-        require(_amount <= maxAmount, "Amount reached maximum available");
-        return _openPosition(_manager, _index, address(basicToken), _toToken, _amount, _deadline);
-        // return 0;
-    }
-
-    /**
-    * get Reward from the position (not actually used, stays here for back compatibility). Can be used in future
+    * returns amount of positions in Positions array. 
      */
-    function rewardPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
-        return _rewardPosition(_index, address(basicToken), _ltAmount, _deadline);
+    function positionsLength() external view returns (uint256) {
+        return assetTokenAddresses.length;
     }
 
     /**
-    * Exit trading position. Swaps a specified amount of Destination Token back to Basic Token and calculates finacial result (profit or loss), that affects pool totalCap param. 
-    *
-    * @param _index - the index of the Position in the positions array. 
-    * @param _ltAmount - the amount of Destination token to be swapped back (position can be partially closed, so this might not equal full LT amount of the position)
-    * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
-    */
-    function exitPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
-        return _exitPosition(_index, address(basicToken), _ltAmount, _deadline);
+    * returns Posision data from arrat at the _index specified. return data:
+    *    1) manager - Position manager tool ID - the tool position was opened with.
+    *    2) amountOpened - the amount of Basic Tokens a position was opened with.
+    *    3) liquidity - the amount of Destination tokens received from exchange when position was opened.
+    *    4) token - the address of ERC20 token that position was opened to 
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+     */
+    
+    function positionAt(uint16 _index) external view returns (uint256,uint256,address) {
+        require(_index < assetTokenAddresses.length);
+        address asset = assetTokenAddresses[_index];
+        return (pAmtOpened[asset], pAssetAmt[asset], asset);
+    }
+
+    function positionFor(address asset) external view returns (uint256,uint256,address) {
+        return (pAmtOpened[asset], pAssetAmt[asset], asset);
     }
 
     // /**
-    // * method that adjusts totalCap higher to be equal to actual amount of BasicTokens on the balance of this smart contract. 
-    //  */
-    // function adjustTotalCap() public onlyTrader returns (uint256){
-    //     return _adjustTotalCap();
+    // * Prepare position for trade (not actually used, stays here for back compatibility.)
+    // */
+    // function preparePosition(uint8 _manager, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256) {
+    //     require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
+    //     return _praparePosition(_manager, address(basicToken), _toToken, _amount, _deadline);
     // }
 
-    /**
-    * returns address of the PositionManager contract implementation. The functional contract that is used to operate positions. 
-    */
-    function getPositionTool(uint8 _index) external view returns (address) {
-        paramkeeper.getPositionTool(_index);
-    }
+    // /**
+    // * Opens trading position. Swaps a specified amount of Basic Token to Destination Token. 
+    // *
+    // * @param _manager - the ID of the Position Manager contract that will execute trading operation
+    // * @param _index - the index of the Position in the positions array. (closed positions can be overwritten by new positions to save some storage)
+    // * @param _toToken - the address of the ERC20 token (destination token) to swap BasicToken to. 
+    // * @param _amount - the amount of Basic Token to be swapped to destination token. 
+    // * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
+    // */
+    // function openPosition(uint8 _manager, uint16 _index, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256, uint256) {
+    //     //apply whitelist
+    //     require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
+    //     uint256 maxAmount = this.getMaxPositionOpenAmount();
+    //     require(_amount <= maxAmount, "Amount reached maximum available");
+    //     return _openPosition(_manager, _index, address(basicToken), _toToken, _amount, _deadline);
+    //     // return 0;
+    // }
+
+    // /**
+    // * get Reward from the position (not actually used, stays here for back compatibility). Can be used in future
+    //  */
+    // function rewardPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
+    //     return _rewardPosition(_index, address(basicToken), _ltAmount, _deadline);
+    // }
+
+    // /**
+    // * Exit trading position. Swaps a specified amount of Destination Token back to Basic Token and calculates finacial result (profit or loss), that affects pool totalCap param. 
+    // *
+    // * @param _index - the index of the Position in the positions array. 
+    // * @param _ltAmount - the amount of Destination token to be swapped back (position can be partially closed, so this might not equal full LT amount of the position)
+    // * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
+    // */
+    // function exitPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
+    //     return _exitPosition(_index, address(basicToken), _ltAmount, _deadline);
+    // }
+
+    // // /**
+    // // * method that adjusts totalCap higher to be equal to actual amount of BasicTokens on the balance of this smart contract. 
+    // //  */
+    // // function adjustTotalCap() public onlyTrader returns (uint256){
+    // //     return _adjustTotalCap();
+    // // }
+
+    // /**
+    // * returns address of the PositionManager contract implementation. The functional contract that is used to operate positions. 
+    // */
+    // function getPositionTool(uint8 _index) external view returns (address) {
+    //     paramkeeper.getPositionTool(_index);
+    // }
 
     /**
     * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
@@ -308,7 +485,7 @@ contract TraderPoolUpgradeable
     }
 
     function getMaxPositionOpenAmount() external view returns (uint256){
-        uint256 currentValuationBT = _totalPositionsCap(address(basicToken));
+        uint256 currentValuationBT = _totalPositionsCap();
         uint256 basicTokenUSDPrice = 1; //TODO put oracle here...
         // l = 0.5*t*pUSD/1000
         uint256 L = traderLiquidityBalance.mul(basicTokenUSDPrice).mul(currentValuationBT.add(availableCap)).div(totalSupply()).div(2000).div(10**18);
@@ -366,36 +543,36 @@ contract TraderPoolUpgradeable
 
 
     function _totalCap() internal override view returns (uint256){
-        return _totalPositionsCap(address(basicToken)).add(availableCap);
+        return _totalPositionsCap().add(availableCap);
     }
 
 
-    //distribute profit between all users
-    function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal override {
-        //apply operation fin res to totalcap and calculate commissions
-        uint256 operationTraderCommission;
-        if(isProfit){
-            (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
-            operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
+    // //distribute profit between all users
+    // function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal override {
+    //     //apply operation fin res to totalcap and calculate commissions
+    //     uint256 operationTraderCommission;
+    //     if(isProfit){
+    //         (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
+    //         operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
 
-            int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
-            //apply trader commision fine if required
-            if (currentTokenPrice < maxDepositedTokenPrice) {
-                int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
-                traderFine = traderFine.mul(traderFine);// ^2
-                operationTraderCommission = traderFine.mulu(operationTraderCommission);
-            }
+    //         int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
+    //         //apply trader commision fine if required
+    //         if (currentTokenPrice < maxDepositedTokenPrice) {
+    //             int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
+    //             traderFine = traderFine.mul(traderFine);// ^2
+    //             operationTraderCommission = traderFine.mulu(operationTraderCommission);
+    //         }
 
-            (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
-            uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
-            dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
-            traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
-        } else {
-            operationTraderCommission = 0;
-        }
+    //         (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
+    //         uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
+    //         dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
+    //         traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
+    //     } else {
+    //         operationTraderCommission = 0;
+    //     }
 
-        availableCap = availableCap.add(finResB.sub(operationTraderCommission));
-    }
+    //     availableCap = availableCap.add(finResB.sub(operationTraderCommission));
+    // }
 
     function _beforeDeposit(uint256 amountTokenSent, address sender, address holder) internal override {
         require(!paused(), "Cannot deposit when paused");
@@ -409,23 +586,23 @@ contract TraderPoolUpgradeable
         // store max traderTokenPrice that any investor got in
         maxDepositedTokenPrice = (maxDepositedTokenPrice<tokenPrice)?tokenPrice:maxDepositedTokenPrice;
         //for active position - distribute funds between positions.
-        if(isActualOn && positions.length > 0){
-            uint256 totalOpened=0;
-            for(uint i=0;i<positions.length;i++){
-                totalOpened = totalOpened.add(positions[i].amountOpened);
-            }
-            //fund
-            uint256 amoutTokenLeft = amountTokenSent;
-            uint256 deadline = block.timestamp + 5*60;
-            uint256 liquidity;
-            for(uint16 i=0;i<positions.length;i++){
-                uint256 fundPositionAmt = amountTokenSent.mul(positions[i].amountOpened).div(totalOpened);
-                if(fundPositionAmt < amoutTokenLeft)//underflow with division
-                    fundPositionAmt = amoutTokenLeft;
-                (fundPositionAmt, liquidity) = _openPosition(positions[i].manager, i, address(basicToken), positions[i].token, fundPositionAmt, deadline);
-                amoutTokenLeft = amoutTokenLeft.sub(fundPositionAmt);
-            }
-        }
+        // if(isActualOn && assetTokenAddresses.length > 0){
+        //     uint256 totalOpened=0;
+        //     for(uint i=0;i<assetTokenAddresses.length;i++){
+        //         totalOpened = totalOpened.add(positions[i].amountOpened);
+        //     }
+        //     //fund
+        //     uint256 amoutTokenLeft = amountTokenSent;
+        //     uint256 deadline = block.timestamp + 5*60;
+        //     uint256 liquidity;
+        //     for(uint16 i=0;i<positions.length;i++){
+        //         uint256 fundPositionAmt = amountTokenSent.mul(positions[i].amountOpened).div(totalOpened);
+        //         if(fundPositionAmt < amoutTokenLeft)//underflow with division
+        //             fundPositionAmt = amoutTokenLeft;
+        //         (fundPositionAmt, liquidity) = _openPosition(positions[i].manager, i, address(basicToken), positions[i].token, fundPositionAmt, deadline);
+        //         amoutTokenLeft = amoutTokenLeft.sub(fundPositionAmt);
+        //     }
+        // }
 
     }
 
@@ -469,5 +646,17 @@ contract TraderPoolUpgradeable
             denom = uint16(1);
         }
         return (_nom, denom);
+    }
+
+    function _totalPositionsCap() internal view returns (uint256) {
+        uint256 totalPositionsCap = 0;
+        IPriceFeeder pf = IPriceFeeder(paramkeeper.getPriceFeeder());
+        for(uint256 i=0;i<assetTokenAddresses.length;i++){
+            uint256 positionValuation = pf.evaluate(address(basicToken),assetTokenAddresses[i],pAssetAmt[assetTokenAddresses[i]]);
+            if(positionValuation == 0)
+                positionValuation = pAmtOpened[assetTokenAddresses[i]];
+            totalPositionsCap = totalPositionsCap.add(positionValuation);
+        }
+        return totalPositionsCap;
     }
 }

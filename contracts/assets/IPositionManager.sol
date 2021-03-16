@@ -18,5 +18,5 @@ interface IPositionTool {
 }
 
 interface IPositionToolManager{
-    function getPositionTool(uint8 _index) external view returns (address);
+    function getPositionTool(uint8 _index) external view returns (address);   
 }

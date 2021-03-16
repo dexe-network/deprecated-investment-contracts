@@ -9,8 +9,8 @@ const Infura = {
   Rinkeby: "https://rinkeby.infura.io/v3/" + infuraApiKey,
   Kovan: "https://kovan.infura.io/v3/" + infuraApiKey
 };
-const Wallets = require('./network_keys/private/wallets');
-const Provider = require('truffle-privatekey-provider');
+// const Wallets = require('./network_keys/private/wallets');
+// const Provider = require('truffle-privatekey-provider');
 
 module.exports = {
   networks: {

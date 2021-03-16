@@ -4,8 +4,9 @@ const UpgradeableBeacon = artifacts.require('UpgradeableBeacon');
 const BeaconProxy = artifacts.require('BeaconProxy');
 const TraderPoolUpgradeable = artifacts.require('TraderPoolUpgradeable');
 const PoolLiquidityTokenUpgradeable = artifacts.require('PoolLiquidityTokenUpgradeable');
-const ExchangePositionManager = artifacts.require('ExchangePositionManager');
+const UniswapExchangeTool = artifacts.require('UniswapExchangeTool');
 const ParamKeeper = artifacts.require('ParamKeeper');
+const PriceFeederUpgradeable = artifacts.require('PriceFeederUpgradeable');
 const UniswapRouter = artifacts.require("IUniswapV2Router02");
 
 
@@ -75,6 +76,20 @@ module.exports = async function (deployer, network, accounts) {
   });
   console.log ("TraderPoolFactoryUpgradeable Proxy Instance:", factoryInstance.address);
 
+
+  let priceFeeder;
+  await deployer.deploy(PriceFeederUpgradeable).then(function(){
+    return UpgradeableBeacon.new(PriceFeederUpgradeable.address);
+  }).then(function (Beacon){
+    console.log ("PriceFeederUpgradeable Beacon:", Beacon.address);
+    return BeaconProxy.new(Beacon.address, web3.utils.hexToBytes('0x'));
+  }).then (function(BeaconProxy){
+    return PriceFeederUpgradeable.at(BeaconProxy.address);
+  }).then(function (instance){
+    priceFeeder = instance;
+  });
+  console.log ("PriceFeederUpgradeable Proxy Instance:", priceFeeder.address);
+
   let paramKeeper;
 
   await deployer.deploy(ParamKeeper).then(function(){
@@ -90,9 +105,18 @@ module.exports = async function (deployer, network, accounts) {
   await paramKeeper.setParamAddress.sendTransaction(toBN(101), accounts[8]);
   //dexe commission address
   await paramKeeper.setParamAddress.sendTransaction(toBN(102), accounts[8]);
-  let exchangePositionManager;
-  await ExchangePositionManager.new({from: accounts[0]}).then(instance => exchangePositionManager = instance);
-  await paramKeeper.setPositionTool.sendTransaction(toBN(0),exchangePositionManager.address);
+  //set price feeder
+  await paramKeeper.setPriceFeeder.sendTransaction(priceFeeder.address);
+
+  //deploy and whitelist Uniswap tool
+  let uniswapTool;
+  await deployer.deploy(UniswapExchangeTool).then(function(){
+    console.log("UniswapExchangeTool.address: ",UniswapExchangeTool.address);
+    return UniswapExchangeTool.at(UniswapExchangeTool.address);
+  }).then(function (instance){
+    uniswapTool = instance;
+  });
+  await paramKeeper.addAssetManager.sendTransaction(uniswapTool.address);
 
   //address _admin, address _traderContractBeaconAddress,address _pltBeaconAddress, address _paramkeeper, address _positionToolManager, address _weth
   await factoryInstance.initialize.sendTransaction(accounts[0],TraderPoolUpgradeableBeaconAddress,PoolLiquidityTokenUpgradeableBeaconAddress, paramKeeper.address,  paramKeeper.address, wethTokenAddress);
