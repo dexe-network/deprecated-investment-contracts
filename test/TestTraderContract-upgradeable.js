@@ -1,5 +1,6 @@
 
 const UniswapExchangeTool = artifacts.require("UniswapExchangeTool");
+const PancakeExchangeTool = artifacts.require("PancakeExchangeTool");
 const TraderPoolFactoryUpgradeable = artifacts.require("TraderPoolFactoryUpgradeable");
 const ParamKeeper = artifacts.require("ParamKeeper");
 const TraderPoolUpgradeable = artifacts.require("TraderPoolUpgradeable");
@@ -7,6 +8,8 @@ const TestToken = artifacts.require("TestToken");
 const IWETH = artifacts.require("IWETH");
 const UniswapFactory = artifacts.require("IUniswapV2Factory");
 const UniswapRouter = artifacts.require("IUniswapV2Router02");
+const IPancakeRouter01 = artifacts.require("IPancakeRouter01");
+const IPancakeFactory = artifacts.require("IPancakeFactory");
 const { time, ether, expectRevert } = require('openzeppelin-test-helpers');
 const BigDecimal = require('js-big-decimal');
 const { assert } = require('chai');
@@ -63,6 +66,9 @@ contract('TraderPool', (accounts) => {
     let uniswapRouterAddress;
     let uniswapExhangeTool;
 
+
+    // const vendor = 'Ethereum';//BSC
+    const vendor = 'BSC';//BSC
     before(async () => {
         assert.isAtLeast(accounts.length, 10, 'User accounts must be at least 10');
         traderWallet = accounts[9];
@@ -70,18 +76,36 @@ contract('TraderPool', (accounts) => {
         await TestToken.new('Test USDT', 'USDT', {from: accounts[0]}).then(instance => basicToken = instance);
         await TestToken.new('Test DAI', 'DAI', {from: accounts[0]}).then(instance => anotherToken = instance);
 
-        uniswapExhangeTool = await UniswapExchangeTool.deployed();
         paramKeeper = await ParamKeeper.deployed();
         console.log("paramKeeper ",paramKeeper.address);
-        console.log("uniswapExhangeTool ",uniswapExhangeTool.address);
-
-
         uniswapRouterAddress = await paramKeeper.getAddress.call(toBN(1000));
-        uniswapFactoryAddress = await paramKeeper.getAddress.call(toBN(1001));
+        // uniswapFactoryAddress = await paramKeeper.getAddress.call(toBN(1001));
 
-        uniswapFactory = await UniswapFactory.at(uniswapFactoryAddress);
-        uniswapRouter = await UniswapRouter.at(uniswapRouterAddress);
-        wethAddress = await uniswapRouter.WETH.call();
+        if(vendor == 'Ethereum'){
+            uniswapExhangeTool = await UniswapExchangeTool.deployed();
+            
+            uniswapRouter = await UniswapRouter.at(uniswapRouterAddress);
+            uniswapFactoryAddress = await uniswapRouter.factory.call();
+            uniswapFactory = await UniswapFactory.at(uniswapFactoryAddress);
+            wethAddress = await uniswapRouter.WETH.call();
+
+            await uniswapFactory.createPair.sendTransaction(anotherToken.address, basicToken.address)
+            .then(() => uniswapFactory.getPair(basicToken.address, anotherToken.address))
+            .then(pair => pairAddress = pair);
+        }else{
+            uniswapExhangeTool = await PancakeExchangeTool.deployed();
+            
+            uniswapRouter = await IPancakeRouter01.at(uniswapRouterAddress);
+            uniswapFactoryAddress = await uniswapRouter.factory.call();
+            uniswapFactory = await IPancakeFactory.at(uniswapFactoryAddress);
+            wethAddress = await uniswapRouter.WETH.call();
+
+            await uniswapFactory.createPair.sendTransaction(anotherToken.address, basicToken.address)
+            .then(() => uniswapFactory.getPair(basicToken.address, anotherToken.address))
+            .then(pair => pairAddress = pair);
+        }
+       
+        console.log("uniswapExhangeTool ",uniswapExhangeTool.address);
 
         //global whitelist
         await paramKeeper.whitelistToken.sendTransaction(anotherToken.address);
@@ -121,9 +145,7 @@ contract('TraderPool', (accounts) => {
         // uniswapFactory = await UniswapFactory.at(uniswapFactoryAddress);
         // uniswapRouter = await UniswapRouter.at(uniswapRouterAddress);
 
-        await uniswapFactory.createPair.sendTransaction(anotherToken.address, basicToken.address)
-            .then(() => uniswapFactory.getPair(basicToken.address, anotherToken.address))
-            .then(pair => pairAddress = pair);
+       
 
         
     });
