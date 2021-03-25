@@ -6,8 +6,9 @@ import "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
 import "./uniswap/RouterInterface.sol";
 import "./uniswap/interfaces/IUniswapV2Pair.sol";
+import "./interfaces/IAssetValuationManager.sol";
 
-contract UniswapPathFinder is Initializable{
+contract UniswapPathFinder is Initializable, IAssetValuationManager{
   using SafeMathUpgradeable for uint256;
 
   address[] internal intermediateTokens;
@@ -26,9 +27,13 @@ contract UniswapPathFinder is Initializable{
     return evaluatePath(fromToken, toToken, fromTokenAmt);
   }
 
-  function getAssetUSDValuation(address assetToken, uint256 assetTokenAmt) public view returns (uint256 assetTokenOut) {
+  function getAssetValuation(address basicToken, address assetToken, uint256 assetAmount) public override view returns (uint256 valuation) {
+      (valuation, ) = evaluatePath(assetToken, basicToken, assetAmount);
+  }
+
+  function getAssetUSDValuation(address assetToken, uint256 assetTokenAmt) public override view returns (uint256 assetTokenOut) {
     address usdcAddress = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    (assetTokenOut,) = evaluatePath(usdcAddress, assetToken, assetTokenAmt);
+    (assetTokenOut,) = evaluatePath(assetToken, usdcAddress, assetTokenAmt);
   }
 
   function uniswapPositionCap(address basicToken, address toToken, uint256 liquidity) internal view returns (uint256){

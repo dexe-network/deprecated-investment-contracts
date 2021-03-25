@@ -5,6 +5,8 @@ const BeaconProxy = artifacts.require('BeaconProxy');
 const TraderPoolUpgradeable = artifacts.require('TraderPoolUpgradeable');
 const PoolLiquidityTokenUpgradeable = artifacts.require('PoolLiquidityTokenUpgradeable');
 const UniswapExchangeTool = artifacts.require('UniswapExchangeTool');
+const UniswapPathFinder = artifacts.require('UniswapPathFinder');
+const UniswapAutoExchangeTool = artifacts.require('UniswapAutoExchangeTool');
 const ParamKeeper = artifacts.require('ParamKeeper');
 const PriceFeederUpgradeable = artifacts.require('PriceFeederUpgradeable');
 const UniswapRouter = artifacts.require("IUniswapV2Router02");
@@ -29,6 +31,7 @@ function printEvents(txResult, strdata){
 }
 
 const decimals = toBN('10').pow(toBN('18'));
+const vendor = 'Ethereum';//BSC
  
 module.exports = async function (deployer, network, accounts) {
 
@@ -90,6 +93,8 @@ module.exports = async function (deployer, network, accounts) {
   });
   console.log ("PriceFeederUpgradeable Proxy Instance:", priceFeeder.address);
 
+
+  //create paramKeeper
   let paramKeeper;
 
   await deployer.deploy(ParamKeeper).then(function(){
@@ -99,14 +104,31 @@ module.exports = async function (deployer, network, accounts) {
     paramKeeper = instance;
   });
 
+  let valuationManager;
+  await deployer.deploy(UniswapPathFinder).then(function(){
+    console.log("UniswapPathFinder.address: ",UniswapPathFinder.address);
+    return UniswapPathFinder.at(UniswapPathFinder.address);
+  }).then(function (instance){
+    valuationManager = instance;
+  });
+
+  let automaticExchangeManager;
+  await deployer.deploy(UniswapAutoExchangeTool,valuationManager.address).then(function(){
+    console.log("UniswapAutoExchangeTool.address: ",UniswapAutoExchangeTool.address);
+    return UniswapAutoExchangeTool.at(UniswapAutoExchangeTool.address);
+  }).then(function (instance){
+    automaticExchangeManager = instance;
+  });
+
+  await paramKeeper.setAssetAutomaticExchangeManager.sendTransaction(automaticExchangeManager.address);
+  await paramKeeper.setAssetValuationManager.sendTransaction(valuationManager.address);
+
   await paramKeeper.setParamAddress.sendTransaction(toBN(1000), uniswapRouterAddress);
   await paramKeeper.setParamAddress.sendTransaction(toBN(1001), uniswapFactoryAddress);
   //insurance address
   await paramKeeper.setParamAddress.sendTransaction(toBN(101), accounts[8]);
   //dexe commission address
   await paramKeeper.setParamAddress.sendTransaction(toBN(102), accounts[8]);
-  //set price feeder
-  await paramKeeper.setPriceFeeder.sendTransaction(priceFeeder.address);
 
   //deploy and whitelist Uniswap tool
   let uniswapTool;

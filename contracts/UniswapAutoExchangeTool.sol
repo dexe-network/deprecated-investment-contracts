@@ -4,53 +4,48 @@ pragma solidity 0.6.6;
 import "./math/SafeMath.sol";
 import "./token/ERC20/IERC20.sol";
 import "./token/ERC20/SafeERC20.sol";
-import "./interfaces/IAssetExchangeManager.sol";
+import "./interfaces/IAssetAutomaticExchangeManager.sol";
 import "./interfaces/ITraderPool.sol";
 import "./uniswap/RouterInterface.sol";
 import "./uniswap/UniswapV2Library.sol";
+import "./UniswapPathFinder.sol";
 
 /**
     UNISWAP based example. 
  */
-contract UniswapExchangeTool is IAssetExchangeManager {
+contract UniswapAutoExchangeTool is IAssetAutomaticExchangeManager {
     
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
+    UniswapPathFinder internal pathfinder;
 
-    constructor() public {
+    constructor(address _pathfinder) public {
+        pathfinder = UniswapPathFinder(_pathfinder);
     }
 
+    function swapExactTokenForToken(
+        address fromToken, 
+        address toToken, 
+        uint256 amountFrom) public override
+        returns (uint256){
 
-    function swapExactTokensForTokens(
-        address traderPool,
-        uint amountIn,
-        uint amountOutMin,
-        address[] memory path,
-        uint deadline
-    ) public {
-        bytes memory data = abi.encode(amountIn, amountOutMin, traderPool, deadline, path);
-        // function initiateExchangeOperatation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata)
-        address fromAsset = path[0];
-        address toAsset = path[path.length-1];
-        ITraderPool(traderPool).initiateExchangeOperatation(fromAsset,toAsset,amountIn,msg.sender, data);
-    }
+    (,address[] memory path) = pathfinder.evaluate(fromToken, toToken, amountFrom);
+    uint deadline = block.timestamp.add(86400);
+        
+    IERC20(path[0]).safeIncreaseAllowance(uniswapRouter(), amountFrom);
+    uint[] memory out = IUniswapV2Router01(uniswapRouter()).swapExactTokensForTokens(
+        amountFrom,
+        0,
+        path,
+        msg.sender,
+        deadline
+    );
+    //return back non spent original tokens
+    uint256 backTokenAmt = amountFrom.sub(out[0]);
+    if(backTokenAmt > 0)
+        IERC20(path[0]).safeTransfer(msg.sender, backTokenAmt);
 
-    function execute(bytes memory _calldata) public override returns (bool){
-        (uint256 amountIn, uint256 amountOutMin, address to, uint deadline, address[] memory path) = abi.decode(_calldata, (uint256, uint256, address, uint, address[]));
-        IERC20(path[0]).safeIncreaseAllowance(uniswapRouter(), amountIn);
-        uint[] memory out = IUniswapV2Router01(uniswapRouter()).swapExactTokensForTokens(
-            amountIn,
-            amountOutMin,
-            path,
-            to,
-            deadline
-        );
-        //return back non spent original tokens
-        uint256 backTokenAmt = amountIn.sub(out[0]);
-        if(backTokenAmt > 0)
-            IERC20(path[0]).safeTransfer(to, backTokenAmt);
-
-        return true;
+    return out[1];
     }
 
      // returns sorted token addresses, used to handle return values from pairs sorted in this order

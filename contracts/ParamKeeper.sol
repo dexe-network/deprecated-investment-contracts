@@ -4,6 +4,8 @@ pragma solidity 0.6.6;
 import "./access/Ownable.sol";
 import "./access/AccessControl.sol";
 import "./assets/IPositionManager.sol";
+import "./interfaces/IAssetValuationManager.sol";
+import "./interfaces/IAssetAutomaticExchangeManager.sol";
 
 contract ParamKeeper is Ownable, AccessControl, IParamStorage{
 
@@ -19,8 +21,12 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
   // mapping (uint8 => address) public instruments;
   mapping (address => bool) public assetManagers;
 
-  address public priceFeeder;
+  // address public priceFeeder;
 
+  IAssetValuationManager internal valuationManager;
+
+  IAssetAutomaticExchangeManager internal automaticExchangeManager;
+  
   constructor() public {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
     _setupRole(MANAGER_ROLE, _msgSender());
@@ -45,6 +51,13 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
   //   assetManagers[_instrument] = true;
   //   // instruments[_index] = _instrument;
   // }
+  function setAssetAutomaticExchangeManager(address _address) public onlyManager {
+      automaticExchangeManager = IAssetAutomaticExchangeManager(_address);
+  }
+
+  function setAssetValuationManager(address _address) public onlyManager {
+      valuationManager = IAssetValuationManager(_address);
+  }
 
   function addAssetManager(address _manager) public onlyManager {
       assetManagers[_manager] = true;
@@ -62,10 +75,6 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
     delete globalWhitelist[_token];
   }
 
-  function setPriceFeeder(address _pf) public onlyManager {
-    priceFeeder = _pf;
-  }
-
   function getAddress(uint16 key) external override view returns (address){
     return addressParams[key];
   }
@@ -78,16 +87,20 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
     return globalWhitelist[token];
   }
 
-  function getPriceFeeder() public view returns (address) {
-    return priceFeeder;
-  }
-
-  // function getPositionTool(uint8 _index) external override view returns (address){
-  //   return instruments[_index];
+  // function getPriceFeeder() public view returns (address) {
+  //   return priceFeeder;
   // }
 
   function isAllowedAssetManager(address _manager) public view returns (bool){
      return assetManagers[_manager];
+  }
+
+  function getAssetAutomaticExchangeManager() public view returns (IAssetAutomaticExchangeManager){
+    return automaticExchangeManager;
+  }
+
+  function getAssetValuationManager() public view returns (IAssetValuationManager){
+    return valuationManager;
   }
 
 }

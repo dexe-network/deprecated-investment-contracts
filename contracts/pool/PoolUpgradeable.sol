@@ -62,6 +62,7 @@ abstract contract PoolUpgradeable is Initializable{
         basicToken = IERC20Token(_basicToken);
         plt = _pltTokenAddress;
         wETH = _weth;
+        require (basicToken.decimals() <= IERC20Token(_pltTokenAddress).decimals(),"Basic tokens with decimals > pool liquidity token decimals are not supported");
     }
 
 
@@ -169,13 +170,24 @@ abstract contract PoolUpgradeable is Initializable{
     //     return totalCap;
     // }
 
+    function _pltToBasicTokenDecimalsMultiplicator() internal view returns(uint256){
+        return (10**uint256(IERC20Token(plt).decimals())).div(10**uint256(basicToken.decimals()));
+    }
+
     function _deposit(uint256 amount, address to) private {
         _beforeDeposit(amount, msg.sender, to);
         uint256 totalCap = _totalCap();
         uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
-        int128 currentTokenPrice = totalSupply>0?ABDKMath64x64.divu(totalCap, totalSupply):ABDKMath64x64.fromUInt(1);
+        int128 currentTokenPrice;
+        uint256 liquidity;
+        if(totalCap > 0) {
+            currentTokenPrice = ABDKMath64x64.divu(totalCap.mul(_pltToBasicTokenDecimalsMultiplicator()), totalSupply);
+            liquidity = amount.mul(totalSupply).div(totalCap);
+        }else{
+            currentTokenPrice = ABDKMath64x64.fromUInt(1);
+            liquidity = amount.mul(_pltToBasicTokenDecimalsMultiplicator());   
+        }
 
-        uint256 liquidity = totalCap != 0 ? amount.mul(totalSupply).div(totalCap) : amount;
         IPoolLiquidityToken(plt).mint(to, liquidity);
         availableCap = availableCap.add(amount);
         
@@ -187,12 +199,14 @@ abstract contract PoolUpgradeable is Initializable{
     }
 
     function _withdraw(uint256 amountLiquidity, address to) private {
+        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
+        require (totalSupply > 0, "Can't withdraw from empty pool");
+        require (totalSupply >= amountLiquidity, "This should never happen");
         _beforeWithdraw(amountLiquidity, msg.sender, to);
         uint256 totalCap = _totalCap();
-        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
-        int128 currentTokenPrice = totalSupply>0?ABDKMath64x64.divu(totalCap, totalSupply):ABDKMath64x64.fromUInt(1);
-        uint256 revenue = totalSupply != 0 ? amountLiquidity.mul(totalCap).div(totalSupply) : amountLiquidity;
-        uint256 commision = _getWithdrawalCommission(amountLiquidity, msg.sender, currentTokenPrice);
+        int128 currentTokenPrice = totalSupply>0?ABDKMath64x64.divu(totalCap.mul(_pltToBasicTokenDecimalsMultiplicator()), totalSupply):ABDKMath64x64.fromUInt(1);
+        uint256 revenue = amountLiquidity.mul(totalCap).div(totalSupply);
+        uint256 commision = _getWithdrawalCommission(revenue, msg.sender, currentTokenPrice);
         uint256 paidOff = revenue.sub(commision);
         require(paidOff <= availableCap, "Not enouth Basic Token tokens on the balance to withdraw");
         availableCap = availableCap.sub(paidOff);
@@ -201,21 +215,6 @@ abstract contract PoolUpgradeable is Initializable{
         emit Withdraw(msg.sender, revenue, amountLiquidity, commision);
         _afterWithdraw(revenue, msg.sender, to);
     }
-
-    // function _withdrawETH(uint256 amountLiquidity, address payable to) private {
-    //     _beforeWithdraw(amountLiquidity, msg.sender, to);
-    //     uint256 totalCap = _totalCap();
-    //     uint256 revenue = totalSupply() != 0 ? amountLiquidity.mul(totalCap).div(totalSupply()) : amountLiquidity;
-    //     require(revenue <= availableCap), "Not enouth Basic Token tokens on the balance to withdraw");
-    //     availableCap = availableCap.sub(revenue);
-    //     IPoolLiquidityToken(plt).burn(msg.sender, amountLiquidity);
-    //     withdrawals[msg.sender] = withdrawals[msg.sender].add(revenue);
-    //     basicToken.safeTransfer(to, revenue);
-    //     // IWETH(wETH).withdraw(revenue);
-    //     // to.transfer(revenue);
-    //     emit Withdraw(msg.sender, revenue);
-    //     _afterWithdraw(revenue, msg.sender, to);
-    // }
 
     /**
     * returns amount of liquidity tokens assigned to users (for fixed supply pool this equals to amount sold, for variable supply pool this equals to amount of tokens minted)
@@ -235,7 +234,7 @@ abstract contract PoolUpgradeable is Initializable{
     function _tokenPrice() internal view returns (int128) {
         uint256 totalCapValue = _totalCap();
         uint256 totalSupplyValue = IPoolLiquidityToken(plt).totalSupply();
-        return totalSupplyValue>0?ABDKMath64x64.divu(totalCapValue, totalSupplyValue):ABDKMath64x64.fromUInt(1);
+        return totalSupplyValue>0?ABDKMath64x64.divu(totalCapValue.mul(_pltToBasicTokenDecimalsMultiplicator()), totalSupplyValue):ABDKMath64x64.fromUInt(1);
     }
 
     function _getWithdrawalCommission(uint256 liquidity, address holder, int128 tokenPrice) internal virtual view returns (uint256);

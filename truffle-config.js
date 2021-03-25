@@ -7,7 +7,8 @@ const Infura = {
   Mainnet: "https://mainnet.infura.io/v3/" + infuraApiKey,
   Ropsten: "https://ropsten.infura.io/v3/" + infuraApiKey,
   Rinkeby: "https://rinkeby.infura.io/v3/" + infuraApiKey,
-  Kovan: "https://kovan.infura.io/v3/" + infuraApiKey
+  Kovan: "https://kovan.infura.io/v3/" + infuraApiKey,
+  BSC: "https://bsc-dataseed1.binance.org "
 };
 // const Wallets = require('./network_keys/private/wallets');
 // const Provider = require('truffle-privatekey-provider');
@@ -17,7 +18,9 @@ module.exports = {
     test: {
       host: "127.0.0.1",
       port: 8545,
-      network_id: 5777, // Match Ganache(Truffle) network id
+      // network_id: 55, // 5777 Match Ganache(Truffle) network id
+      network_id: 5777, //Match Ganache(Truffle) network id
+      // provider: () => new HDWalletProvider(mnemonic, Infura.BSC),
       //provider: () => new Provider('88197d4cac39375094dab1cfd7e302a0874a342ed6a1a965a8d8e4e381327eb1', 'http://127.0.0.1:8545'),
       gas: 10000000,
     },

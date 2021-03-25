@@ -12,7 +12,9 @@ import "./ParamKeeper.sol";
 import "./pool/PoolUpgradeable.sol";
 import "./interfaces/ITraderPoolInitializable.sol";
 import "./interfaces/IPriceFeeder.sol";
-import "./interfaces/IAssetManager.sol";
+import "./interfaces/IAssetExchangeManager.sol";
+import "./interfaces/IAssetValuationManager.sol";
+import "./interfaces/IAssetAutomaticExchangeManager.sol";
 import "./interfaces/ITraderPool.sol";
 
 struct Position {
@@ -75,7 +77,7 @@ contract TraderPoolUpgradeable
 
     function version() public view returns (uint128){
         //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
-        return 1000000;
+        return 1001000;
     }
     
     function initialize(address[9] memory iaddr, uint256 _commissions, bool _actual, bool _investorRestricted) public override initializer{
@@ -224,7 +226,7 @@ contract TraderPoolUpgradeable
             uint256 fromAssetBalanceBefore = IERC20Upgradeable(fromAsset).balanceOf(address(this));
             uint256 toAssetBalanceBefore = IERC20Upgradeable(toAsset).balanceOf(address(this));
             IERC20Token(fromAsset).safeTransfer(msg.sender, fromAmt);
-            require(IAssetManager(msg.sender).execute(_calldata), "Asset manager execution failed");
+            require(IAssetExchangeManager(msg.sender).execute(_calldata), "Asset exchange manager execution failed");
             fromSpent = fromAssetBalanceBefore.sub(IERC20Upgradeable(fromAsset).balanceOf(address(this)));
             toGained = IERC20Upgradeable(toAsset).balanceOf(address(this)).sub(toAssetBalanceBefore);
         }
@@ -271,7 +273,7 @@ contract TraderPoolUpgradeable
                 }
 
                 (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
-                uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
+                uint256 operationDeXeCommission = operationTraderCommission.mul(dexeCommissionPercentNom).div(dexeCommissionPercentDenom);
                 dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
                 traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
 
@@ -586,33 +588,54 @@ contract TraderPoolUpgradeable
         // store max traderTokenPrice that any investor got in
         maxDepositedTokenPrice = (maxDepositedTokenPrice<tokenPrice)?tokenPrice:maxDepositedTokenPrice;
         //for active position - distribute funds between positions.
-        // if(isActualOn && assetTokenAddresses.length > 0){
-        //     uint256 totalOpened=0;
-        //     for(uint i=0;i<assetTokenAddresses.length;i++){
-        //         totalOpened = totalOpened.add(positions[i].amountOpened);
-        //     }
-        //     //fund
-        //     uint256 amoutTokenLeft = amountTokenSent;
-        //     uint256 deadline = block.timestamp + 5*60;
-        //     uint256 liquidity;
-        //     for(uint16 i=0;i<positions.length;i++){
-        //         uint256 fundPositionAmt = amountTokenSent.mul(positions[i].amountOpened).div(totalOpened);
-        //         if(fundPositionAmt < amoutTokenLeft)//underflow with division
-        //             fundPositionAmt = amoutTokenLeft;
-        //         (fundPositionAmt, liquidity) = _openPosition(positions[i].manager, i, address(basicToken), positions[i].token, fundPositionAmt, deadline);
-        //         amoutTokenLeft = amoutTokenLeft.sub(fundPositionAmt);
-        //     }
-        // }
+        IAssetAutomaticExchangeManager exchanger = paramkeeper.getAssetAutomaticExchangeManager();
+        if(isActualOn && assetTokenAddresses.length > 0){
+            uint256 totalOpened=0;
+            for(uint i=0;i<assetTokenAddresses.length;i++){
+                totalOpened = totalOpened.add(pAmtOpened[assetTokenAddresses[i]]);
+            }
+            //fund
+            uint256 amoutTokenLeft = amountTokenSent;
+            // uint256 deadline = block.timestamp + 5*60;
+            // uint256 liquidity;
+            for(uint16 i=0;i<assetTokenAddresses.length;i++){
+                uint256 fundPositionAmt = amountTokenSent.mul(pAmtOpened[assetTokenAddresses[i]]).div(totalOpened);
+                if(fundPositionAmt < amoutTokenLeft)//underflow with division
+                    fundPositionAmt = amoutTokenLeft;
+                
+                uint256 fromSpent;
+                uint256 toGained; 
+                //perform automatic exchange
+                {
+                    uint256 fromAssetBalanceBefore = basicToken.balanceOf(address(this));
+                    uint256 toAssetBalanceBefore = IERC20Upgradeable(assetTokenAddresses[i]).balanceOf(address(this));
+                    basicToken.safeTransfer(address(exchanger), fundPositionAmt);
+                    exchanger.swapExactTokenForToken(address(basicToken), assetTokenAddresses[i], fundPositionAmt);
+                    fromSpent = fromAssetBalanceBefore.sub(basicToken.balanceOf(address(this)));
+                    toGained = IERC20Upgradeable(assetTokenAddresses[i]).balanceOf(address(this)).sub(toAssetBalanceBefore);
+                }
+                emit Exchanged (address(basicToken), assetTokenAddresses[i], fromSpent, toGained);
+                pAmtOpened[assetTokenAddresses[i]] = pAmtOpened[assetTokenAddresses[i]].add(fromSpent);
+                pAssetAmt[assetTokenAddresses[i]] = pAssetAmt[assetTokenAddresses[i]].add(toGained);
+                //
+                amoutTokenLeft = amoutTokenLeft.sub(fromSpent);
+            }
+        }
 
     }
-
-    function _getWithdrawalCommission(uint256 liquidity, address holder, int128 tokenPrice) internal override view returns (uint256){
-        uint256 commision;
+    /**
+        @param revenue - revenue (capital gain in basic token)
+        @param holder - user who got the revenue
+        @param currentTokenPrice - current trader token price (as of the time of revenue accrued)
+     */
+    function _getWithdrawalCommission(uint256 revenue, address holder, int128 currentTokenPrice) internal override view returns (uint256){
+        uint256 commision; //commission in basic token
         //applied for investors only. not for traders
-        if(tokenPrice > deposits[holder].price && !traderFundAddresses[holder]){
-            int128 priceDiff = tokenPrice.sub(deposits[holder].price);
+        if(currentTokenPrice > deposits[holder].price && !traderFundAddresses[holder]){
+            int128 priceDiff = currentTokenPrice.sub(deposits[holder].price);
             (uint16 investorCommissionPercentNom, uint16 investorCommissionPercentDenom) = _getCommission(2);
-            commision = priceDiff.mulu(liquidity).mul(investorCommissionPercentNom).div(investorCommissionPercentDenom);
+            //profit = priceDiff * revenue;
+            commision = priceDiff.mulu(revenue).mul(investorCommissionPercentNom).div(investorCommissionPercentDenom);
         } else {
             commision = 0;
         }
@@ -650,9 +673,8 @@ contract TraderPoolUpgradeable
 
     function _totalPositionsCap() internal view returns (uint256) {
         uint256 totalPositionsCap = 0;
-        IPriceFeeder pf = IPriceFeeder(paramkeeper.getPriceFeeder());
         for(uint256 i=0;i<assetTokenAddresses.length;i++){
-            uint256 positionValuation = pf.evaluate(address(basicToken),assetTokenAddresses[i],pAssetAmt[assetTokenAddresses[i]]);
+            uint256 positionValuation = paramkeeper.getAssetValuationManager().getAssetValuation(address(basicToken),assetTokenAddresses[i],pAssetAmt[assetTokenAddresses[i]]);
             if(positionValuation == 0)
                 positionValuation = pAmtOpened[assetTokenAddresses[i]];
             totalPositionsCap = totalPositionsCap.add(positionValuation);
