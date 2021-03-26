@@ -41,15 +41,19 @@ const vendor = 'BSC';//BSC
 module.exports = async function (deployer, network, accounts) {
   console.log('network =',network);
   let swapRouterAddress;
-  //0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F
   
   if(network == 'rinkeby'){
-    swapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
+    swapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';//uniswap
   }else if(network == 'ropsten' || network == 'ropsten-fork'){
     swapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
   }
-  else if(network == 'test' || network =='mainnet'){
+  else if(network == 'mainnet'){
+    swapRouterAddress = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
+  }
+  else if(network == 'test'){
     swapRouterAddress = (vendor == 'Ethereum')? '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D': '0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F';
+  } else if(network == 'bsc' || network == 'bsc-fork'){
+    swapRouterAddress = '0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F';//pancake
   }
 
   console.log("swap router Address=",swapRouterAddress);
@@ -185,10 +189,11 @@ module.exports = async function (deployer, network, accounts) {
   await paramKeeper.setParamAddress.sendTransaction(toBN(1), factoryInstance.address);
   console.log("Factory inited");
 
-  if(true && (network == 'ropsten' || network == 'ropsten-fork')){
+  if(true && (network == 'ropsten' || network == 'ropsten-fork' 
+          || network == 'bsc' || network == 'bsc-fork')){
 
     let traderWallet = accounts[0];
-    let basicTokenAddress = '0xad6d458402f60fd3bd25163575031acdce07538d';
+    let basicTokenAddress = '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56';//busd @ BSC
 
     let traderPoolFactoryAddress = await paramKeeper.getAddress.call(toBN(1));
     traderPoolFactory = await TraderPoolFactoryUpgradeable.at(traderPoolFactoryAddress);

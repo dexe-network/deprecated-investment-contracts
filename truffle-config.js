@@ -46,7 +46,16 @@ module.exports = {
       network_id: 1,
       provider: () => new HDWalletProvider(mnemonic, Infura.Kovan),
       gas: 10000000,
-    }
+    },
+    bsc: {
+      provider: () => new HDWalletProvider(mnemonic, 'https://bsc-dataseed1.binance.org'),
+      network_id: 56,
+      // confirmations: 10,
+      timeoutBlocks: 200,
+      gas: 8000000,
+      gasPrice: 10000000000
+      // skipDryRun: false
+    },
   },
 
   // Set default mocha options here, use special reporters etc.
