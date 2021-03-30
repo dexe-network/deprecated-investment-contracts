@@ -32,8 +32,13 @@ contract UniswapPathFinder is Initializable, IAssetValuationManager{
   }
 
   function getAssetUSDValuation(address assetToken, uint256 assetTokenAmt) public override view returns (uint256 assetTokenOut) {
-    address usdcAddress = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    (assetTokenOut,) = evaluatePath(assetToken, usdcAddress, assetTokenAmt);
+    address usdPeggedCoinAddress = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48; //usdc
+    if(assetToken == usdPeggedCoinAddress){
+      assetTokenOut = assetTokenAmt;
+    }
+    else {
+     (assetTokenOut,) = evaluatePath(assetToken, usdPeggedCoinAddress, assetTokenAmt);
+    }
   }
 
   function uniswapPositionCap(address basicToken, address toToken, uint256 liquidity) internal view returns (uint256){
@@ -50,6 +55,8 @@ contract UniswapPathFinder is Initializable, IAssetValuationManager{
   } 
 
   function evaluatePath(address fromToken, address toToken, uint256 fromTokenAmt) internal view returns (uint256, address[] memory) {
+  if(fromToken == toToken)
+      return (fromTokenAmt, new address[](0));
     address[] memory path = new address[](2);
     path[0] = fromToken;
     path[1] = toToken;

@@ -22,7 +22,7 @@ contract TraderPoolUpgradeable
 
     //ACL
     //Manager is the person allowed to manage funds
-    bytes32 public TRADER_ROLE;
+    bytes32 public constant TRADER_ROLE = keccak256("TRADER_ROLE");
     bool public isActualOn;
     bool public isInvestorsWhitelistEnabled;
 
@@ -89,12 +89,6 @@ contract TraderPoolUpgradeable
         __Pausable_init_unchained();
         __AccessControl_init_unchained();
         // address _paramstorage, address _positiontoolmanager
-        // __AssetManagerUpgradeable_init_unchained(address(this), iaddr[5]);
-
-        // address _dexeComm, address _insurance, address _paramkeeper, address _positiontoolmanager
-        // address _traderWallet, address _basicToken, address _pltAddress, bool _isFixedSupply, uint8 _tcNom, uint8 _tcDenom, bool _actual
-        
-        TRADER_ROLE = keccak256("TRADER_ROLE");
 
         //access control initial setup
         _setupRole(DEFAULT_ADMIN_ROLE, iaddr[0]);
@@ -429,9 +423,13 @@ contract TraderPoolUpgradeable
     */
     function getMaxPositionOpenAmount() external view returns (uint256){
         uint256 currentValuationBT = _totalPositionsCap();
-        uint256 basicTokenUSDPrice = 1; //TODO put oracle here...
+
+        uint256 traderLiquidityBalanceUSD = paramkeeper.getAssetValuationManager().getAssetUSDValuation(address(basicToken), traderLiquidityBalance);
+        if(traderLiquidityBalanceUSD == 0){
+            traderLiquidityBalanceUSD = traderLiquidityBalance; //for testing purposes
+        }
         // l = 0.5*t*pUSD/1000
-        uint256 L = traderLiquidityBalance.mul(basicTokenUSDPrice).mul(currentValuationBT.add(availableCap)).div(totalSupply()).div(2000).div(10**18);
+        uint256 L = traderLiquidityBalanceUSD.mul(currentValuationBT.add(availableCap)).div(totalSupply()).div(2000).div(10**18);
         // maxQ =  (l+1)*t*p - w
         uint256 maxQ = L.add(1).mul(traderLiquidityBalance).mul(currentValuationBT.add(availableCap)).div(totalSupply());
         maxQ = (maxQ > currentValuationBT)? maxQ.sub(currentValuationBT) : 0;
