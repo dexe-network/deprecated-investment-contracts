@@ -1,13 +1,5 @@
 pragma solidity 0.6.6;
 
-// import "../math/SafeMath.sol";
-// import "../token/ERC20/IERC20.sol";
-// import "../token/ERC20/ERC20Mintable.sol";
-// import "../token/ERC20/ERC20Burnable.sol";
-// import "../token/ERC20/SafeERC20.sol";
-// import "./PoolLiquidityToken.sol";
-// import "./PoolLiquidityTokenFixed.sol";
-
 import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
@@ -32,7 +24,6 @@ abstract contract PoolUpgradeable is Initializable{
 
     address private wETH;
     address public plt;
-    // uint256 public totalCap;
     uint256 public availableCap;
     IERC20Token public basicToken;
 
@@ -162,14 +153,6 @@ abstract contract PoolUpgradeable is Initializable{
         _withdraw(amount, to);
     }
 
-    /** Use with caution!
-     */
-    // function _adjustTotalCap() internal returns (uint256) {
-    //     if(basicToken.balanceOf(address(this)) > totalCap)
-    //         totalCap = basicToken.balanceOf(address(this));
-    //     return totalCap;
-    // }
-
     function _pltToBasicTokenDecimalsMultiplicator() internal view returns(uint256){
         return (10**uint256(IERC20Token(plt).decimals())).div(10**uint256(basicToken.decimals()));
     }
@@ -218,7 +201,7 @@ abstract contract PoolUpgradeable is Initializable{
 
     /**
     * returns amount of liquidity tokens assigned to users (for fixed supply pool this equals to amount sold, for variable supply pool this equals to amount of tokens minted)
-     */
+    */
     function totalSupply() public view returns(uint256) {
         return IPoolLiquidityToken(plt).totalSupply();
     }

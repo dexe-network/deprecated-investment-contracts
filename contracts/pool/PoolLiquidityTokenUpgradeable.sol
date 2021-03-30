@@ -10,7 +10,7 @@ contract PoolLiquidityTokenUpgradeable is ERC20Upgradeable, OwnableUpgradeable, 
     // uint256 public maxPoolTotalSupply;
     bool public fixedSupply;
 
-    function initialize(address _owner, uint256 _maxPoolTotalSupply,string memory name_, string memory symbol_) public override initializer {
+    function initialize(address _owner, uint256 _maxPoolTotalSupply, string memory name_, string memory symbol_) public override initializer {
         __ERC20_init(name_, symbol_);
         __Ownable_init_unchained();
         __PoolLiquidityTokenUpgradeable_init_unchained(_owner, _maxPoolTotalSupply);

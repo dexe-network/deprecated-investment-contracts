@@ -29,10 +29,10 @@ contract PancakeExchangeTool is IAssetExchangeManager {
         uint deadline
     ) public {
         bytes memory data = abi.encode(amountIn, amountOutMin, traderPool, deadline, path);
-        // function initiateExchangeOperatation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata)
+        // function initiateExchangeOperation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata)
         address fromAsset = path[0];
         address toAsset = path[path.length-1];
-        ITraderPool(traderPool).initiateExchangeOperatation(fromAsset,toAsset,amountIn,msg.sender, data);
+        ITraderPool(traderPool).initiateExchangeOperation(fromAsset,toAsset,amountIn,msg.sender, data);
     }
 
     function execute(bytes memory _calldata) public override returns (bool){

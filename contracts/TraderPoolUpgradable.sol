@@ -1,36 +1,21 @@
 pragma solidity 0.6.6;
 
-
-
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-
-// import "./assets/AssetManagerUpgradeable.sol";
-import "./assets/IPositionManager.sol";
-import "./ParamKeeper.sol";
 import "./pool/PoolUpgradeable.sol";
 import "./interfaces/ITraderPoolInitializable.sol";
-import "./interfaces/IPriceFeeder.sol";
+import "./interfaces/IParamStorage.sol";
 import "./interfaces/IAssetExchangeManager.sol";
 import "./interfaces/IAssetValuationManager.sol";
 import "./interfaces/IAssetAutomaticExchangeManager.sol";
 import "./interfaces/ITraderPool.sol";
-
-struct Position {
-    //amount of tokens position was opened with
-    uint256 amountOpened;
-    //liquidity tokens equivalent of the position. When 0 => position closed.
-    uint256 liquidity;
-}
 
 contract TraderPoolUpgradeable 
     is 
     AccessControlUpgradeable, 
     PausableUpgradeable, 
     PoolUpgradeable,
-    // AssetManagerUpgradeable,
-    IParamStorage,
     ITraderPoolInitializable,
     ITraderPool
     {
@@ -44,13 +29,8 @@ contract TraderPoolUpgradeable
     address public traderCommissionAddress;
     address public dexeCommissionAddress;
     address public insuranceContractAddress;
-    ParamKeeper private paramkeeper;
+    IParamStorage private paramkeeper;
 
-
-    // uint256 public traderCommissionPercentNom;
-    // uint256 public traderCommissionPercentDenom;
-    // uint256 public investorCommissionPercentNom;
-    // uint256 public investorCommissionPercentDenom;
     uint256 public commissions;
     uint256 public traderCommissionBalance;
     uint256 public dexeCommissionBalance;
@@ -67,17 +47,20 @@ contract TraderPoolUpgradeable
     mapping (address => bool) public investorWhitelist;
 
     //positions
-    mapping(address => uint256) pAmtOpened;
-    mapping(address => uint256) pAssetAmt;
-    address[] public assetTokenAddresses;
+    mapping(address => uint256) pAmtOpened;  //amount of basicTokens spent for opening position (i.e. position opening cost)
+    mapping(address => uint256) pAssetAmt; //amount of assets locked in the open position
+    address[] public assetTokenAddresses; //address of the asset ERC20 token
 
     event Exchanged(address fromAsset, address toAsset, uint256 fromAmt, uint256 toAmt);
     event Profit(uint256 amount);
     event Loss(uint256 amount);
 
-    function version() public view returns (uint128){
+    /**
+    * returns version of the contract
+    */
+    function version() public view returns (uint32){
         //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
-        return 1001000;
+        return uint32(10010001);
     }
     
     function initialize(address[9] memory iaddr, uint256 _commissions, bool _actual, bool _investorRestricted) public override initializer{
@@ -120,10 +103,6 @@ contract TraderPoolUpgradeable
         //safe mode "on" with commissions
         traderCommissionAddress = iaddr[1];
 
-        // traderCommissionPercentNom = uint8(iuint[0]);
-        // traderCommissionPercentDenom = uint8(iuint[1]);
-        // investorCommissionPercentNom = uint8(iuint[2]);
-        // investorCommissionPercentDenom= uint8(iuint[3]);
         commissions = _commissions;
         // require (iuint[1]>0, "Incorrect traderCommissionPercentDenom");
 
@@ -134,7 +113,7 @@ contract TraderPoolUpgradeable
 
         dexeCommissionAddress = iaddr[6];
         insuranceContractAddress = iaddr[7];
-        paramkeeper = ParamKeeper(iaddr[4]);  
+        paramkeeper = IParamStorage(iaddr[4]);  
         storageVersion = version();
     
     }
@@ -155,7 +134,7 @@ contract TraderPoolUpgradeable
         _;
     }
 
-      /**
+    /**
     * @dev Throws if called by any account other than the one with the onlyAssetManager role granted.
     */
     modifier onlyAssetManager() {
@@ -165,7 +144,7 @@ contract TraderPoolUpgradeable
 
     /**
     * adds new trader address (tokens received from this address considered to be the traders' tokens)
-     */
+    */
     function addTraderAddress (address _traderAddress) public onlyTrader {
         traderFundAddresses[_traderAddress] = true;
     }
@@ -178,31 +157,35 @@ contract TraderPoolUpgradeable
     }
 
     /**
-    * adds new trader address (tokens received from this address considered to be the traders' tokens)
-     */
-    function addInvestorAddress (address[100] memory _investors) public onlyTrader {
-        for(uint i=0;i<100;i++){
+    * whitelist new investors addresses. Investors whitelist is applied if isInvestorsWhitelistEnabled == 'true' only;
+    * @param _investors - array of investors addresses
+    */
+    function addInvestorAddress (address[] memory _investors) public onlyTrader {
+        for(uint i=0;i<_investors.length;i++){
             if(_investors[i] != address(0))
                 investorWhitelist[_investors[i]] = true;
-            else
-                break;
         }
     }
 
     /**
-    * removes trader address (tokens received from trader address considered to be the traders' tokens)
+    * removes investors from whitelist. Investors whitelist is applied if isInvestorsWhitelistEnabled == 'true' only;
+    * @param _investors - array of investors addresses 
     */
-    function removeInvestorAddress (address[100] memory _investors) public onlyTrader {
-        for(uint i=0;i<100;i++){
+    function removeInvestorAddress (address[] memory _investors) public onlyTrader {
+        for(uint i=0;i<_investors.length;i++){
             if(_investors[i] != address(0))
                 delete investorWhitelist[_investors[i]];
-            else
-                break;
         }
     }
 
-
-    function initiateExchangeOperatation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata) public override onlyAssetManager {
+    /**
+    * Function caled by Exchange operation manager to initiate exchange operation
+    * @param fromAsset - address of the ERC20 token that will be exchanged
+    * @param toAsset - address of the ERC20 token that fromAsset will be exchanged to
+    * @param caller - address of the Exchange Manager that will be invoked (same approach to flashloans)
+    * @param _calldata - calldata that Exchange Manager will be provided with (same approach to flashloans)
+    */
+    function initiateExchangeOperation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata) public override onlyAssetManager {
         require (fromAsset != toAsset, "incorrect asset params");
         require (fromAsset != address(0), "incorrect fromAsset param");
         require (toAsset != address(0), "incorrect toAsset param");
@@ -328,92 +311,40 @@ contract TraderPoolUpgradeable
     }
 
     /**
-    * returns amount of positions in Positions array. 
-     */
+    * returns amount of positions in Positions array, i.e. amount of Open positions 
+    */
     function positionsLength() external view returns (uint256) {
         return assetTokenAddresses.length;
     }
 
     /**
-    * returns Posision data from arrat at the _index specified. return data:
-    *    1) manager - Position manager tool ID - the tool position was opened with.
-    *    2) amountOpened - the amount of Basic Tokens a position was opened with.
-    *    3) liquidity - the amount of Destination tokens received from exchange when position was opened.
-    *    4) token - the address of ERC20 token that position was opened to 
+    * returns Posision data from array at the @param _index specified. return data:
+    *    1) amountOpened - the amount of Basic Tokens a position was opened with.
+    *    2) liquidity - the amount of Destination tokens received from exchange when position was opened.
+    *    3) token - the address of ERC20 token that position was opened to 
     * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
-     */
-    
+    */
     function positionAt(uint16 _index) external view returns (uint256,uint256,address) {
         require(_index < assetTokenAddresses.length);
         address asset = assetTokenAddresses[_index];
         return (pAmtOpened[asset], pAssetAmt[asset], asset);
     }
 
+    /**
+    * returns Posision data from array for the @param asset:
+    *    1) amountOpened - the amount of Basic Tokens a position was opened with.
+    *    2) liquidity - the amount of Destination tokens received from exchange when position was opened.
+    *    3) token - the address of ERC20 token that position was opened to 
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+    */
     function positionFor(address asset) external view returns (uint256,uint256,address) {
         return (pAmtOpened[asset], pAssetAmt[asset], asset);
     }
 
-    // /**
-    // * Prepare position for trade (not actually used, stays here for back compatibility.)
-    // */
-    // function preparePosition(uint8 _manager, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256) {
-    //     require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
-    //     return _praparePosition(_manager, address(basicToken), _toToken, _amount, _deadline);
-    // }
-
-    // /**
-    // * Opens trading position. Swaps a specified amount of Basic Token to Destination Token. 
-    // *
-    // * @param _manager - the ID of the Position Manager contract that will execute trading operation
-    // * @param _index - the index of the Position in the positions array. (closed positions can be overwritten by new positions to save some storage)
-    // * @param _toToken - the address of the ERC20 token (destination token) to swap BasicToken to. 
-    // * @param _amount - the amount of Basic Token to be swapped to destination token. 
-    // * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
-    // */
-    // function openPosition(uint8 _manager, uint16 _index, address _toToken, uint256 _amount, uint256 _deadline) public onlyTrader returns (uint256, uint256) {
-    //     //apply whitelist
-    //     require(paramkeeper.isWhitelisted(_toToken) || traderWhitelist[_toToken],"Position token address to be whitelisted");
-    //     uint256 maxAmount = this.getMaxPositionOpenAmount();
-    //     require(_amount <= maxAmount, "Amount reached maximum available");
-    //     return _openPosition(_manager, _index, address(basicToken), _toToken, _amount, _deadline);
-    //     // return 0;
-    // }
-
-    // /**
-    // * get Reward from the position (not actually used, stays here for back compatibility). Can be used in future
-    //  */
-    // function rewardPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
-    //     return _rewardPosition(_index, address(basicToken), _ltAmount, _deadline);
-    // }
-
-    // /**
-    // * Exit trading position. Swaps a specified amount of Destination Token back to Basic Token and calculates finacial result (profit or loss), that affects pool totalCap param. 
-    // *
-    // * @param _index - the index of the Position in the positions array. 
-    // * @param _ltAmount - the amount of Destination token to be swapped back (position can be partially closed, so this might not equal full LT amount of the position)
-    // * @param _deadline - the timestamp of the deadline an operation have to complete before. Another way transaction will be reverted.
-    // */
-    // function exitPosition(uint16 _index, uint256 _ltAmount, uint256 _deadline) public onlyTrader returns (uint256) {
-    //     return _exitPosition(_index, address(basicToken), _ltAmount, _deadline);
-    // }
-
-    // // /**
-    // // * method that adjusts totalCap higher to be equal to actual amount of BasicTokens on the balance of this smart contract. 
-    // //  */
-    // // function adjustTotalCap() public onlyTrader returns (uint256){
-    // //     return _adjustTotalCap();
-    // // }
-
-    // /**
-    // * returns address of the PositionManager contract implementation. The functional contract that is used to operate positions. 
-    // */
-    // function getPositionTool(uint8 _index) external view returns (address) {
-    //     paramkeeper.getPositionTool(_index);
-    // }
-
     /**
     * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
-     */
+    * @param amount - amount of commission to withdraw (allows for partial withdrawal)
+    */
     function withdrawTraderCommission(uint256 amount) public onlyTrader {
         require(amount <= traderCommissionBalance, "Amount to be less then external commission available to withdraw");
         basicToken.safeTransfer(traderCommissionAddress, amount);
@@ -421,8 +352,9 @@ contract TraderPoolUpgradeable
     }
     
     /**
-    * initiates withdraw of the Dexe commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
-     */
+    * initiates withdraw of the Dexe commission onto the Platform Commission address. Anyone can trigger this function
+    * @param amount - amount of commission to withdraw (allows for partial withdrawal)
+    */
     function withdrawDexeCommission(uint256 amount) public {
         require(amount <= dexeCommissionBalance, "Amount to be less then external commission available to withdraw");
         basicToken.safeTransfer(dexeCommissionAddress, amount);
@@ -431,8 +363,9 @@ contract TraderPoolUpgradeable
 
 
     /**
-    * Set new traderCommission address. The address that trader receives his commission out from this contract. 
-     */
+    * Change traderCommission address. The address that trader receives his commission out from this contract. 
+    * @param _traderCommissionAddress - new trader commission address
+    */
     function setTraderCommissionAddress(address _traderCommissionAddress) public onlyTrader {
         traderCommissionAddress = _traderCommissionAddress;
     }
@@ -440,8 +373,11 @@ contract TraderPoolUpgradeable
     //TODO: apply governance here
     /**
     * set external commission percent in a form of natural fraction: _nom/_denom. 
+    * @param _type - commission type (1 for trader commission, 2 for investor commission, 3 for platform commission)
+    * @param _nom - nominator of the commission fraction
+    * @param _denom - denominator of the commission fraction
     */
-    function setExternalCommissionPercent(uint256 _type, uint16 _nom, uint16 _denom) public onlyAdmin {
+    function setCommission(uint256 _type, uint16 _nom, uint16 _denom) public onlyAdmin {
         require (_denom > 0, "Incorrect denom");
         require (_type == 1 || _type ==2 || _type == 3, "Incorrect type");
         uint16[6] memory coms;
@@ -474,18 +410,23 @@ contract TraderPoolUpgradeable
     }
 
     /**
-    * set contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
-     */
+    * put contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
+    */
     function pause() onlyAdmin public {
         super._pause();
     }
+
     /**
-    * unpause the contract (enable deposit operations)
-     */
+    * unpause the contract (enable deposit operations back)
+    */
     function unpause() onlyAdmin public {
         super._unpause();
     }
 
+
+    /**
+    * returns maximum amount of basicToken's that trader can spend for opening position at the movement (including leverage)
+    */
     function getMaxPositionOpenAmount() external view returns (uint256){
         uint256 currentValuationBT = _totalPositionsCap();
         uint256 basicTokenUSDPrice = 1; //TODO put oracle here...
@@ -498,25 +439,20 @@ contract TraderPoolUpgradeable
         return maxQ;
     }
 
-
-    // function portfolioCap() external view returns (uint256){
-    //     return _totalPositionsCap(address(basicToken));
+    // /**
+    // * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    // * @param key - ID of address parameter;
+    // */
+    // function getAddress(uint16 key) external override view returns (address){
+    //     return paramkeeper.getAddress(key);
     // }
-
-    /**
-    * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
-    * @param key - ID of address parameter;
-    */
-    function getAddress(uint16 key) external override view returns (address){
-        return paramkeeper.getAddress(key);
-    }
-    /**
-    * returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
-    * @param key - ID of uint256 parameter;
-    */
-    function getUInt256(uint16 key) external override view returns (uint256){
-        return paramkeeper.getUInt256(key);
-    }
+    // /**
+    // * returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    // * @param key - ID of uint256 parameter;
+    // */
+    // function getUInt256(uint16 key) external override view returns (uint256){
+    //     return paramkeeper.getUInt256(key);
+    // }
     
     /**
     * returns the data of the User:
@@ -539,42 +475,21 @@ contract TraderPoolUpgradeable
         return (_totalCap(), totalSupply());
     }
 
+    /**
+    * returns commission natural fraction for a specified @param _type (1 for trader commission, 2 for investor commission, 3 for platform commission)
+    */
     function getCommission(uint256 _type) external view returns (uint16,uint16){
         return _getCommission(_type);
     }
 
+    //***************************INTERNAL METHODS **************************/
 
+    /**
+    * returns total capital locked on the Trader contract
+    */
     function _totalCap() internal override view returns (uint256){
         return _totalPositionsCap().add(availableCap);
     }
-
-
-    // //distribute profit between all users
-    // function _callbackFinRes(uint16 index, uint256 ltAmount, uint256 receivedAmountB, bool isProfit, uint256 finResB) internal override {
-    //     //apply operation fin res to totalcap and calculate commissions
-    //     uint256 operationTraderCommission;
-    //     if(isProfit){
-    //         (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
-    //         operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
-
-    //         int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
-    //         //apply trader commision fine if required
-    //         if (currentTokenPrice < maxDepositedTokenPrice) {
-    //             int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
-    //             traderFine = traderFine.mul(traderFine);// ^2
-    //             operationTraderCommission = traderFine.mulu(operationTraderCommission);
-    //         }
-
-    //         (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
-    //         uint256 operationDeXeCommission = operationTraderCommission.mul(3).div(10);
-    //         dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
-    //         traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
-    //     } else {
-    //         operationTraderCommission = 0;
-    //     }
-
-    //     availableCap = availableCap.add(finResB.sub(operationTraderCommission));
-    // }
 
     function _beforeDeposit(uint256 amountTokenSent, address sender, address holder) internal override {
         require(!paused(), "Cannot deposit when paused");
@@ -623,11 +538,13 @@ contract TraderPoolUpgradeable
         }
 
     }
+
+
     /**
-        @param revenue - revenue (capital gain in basic token)
-        @param holder - user who got the revenue
-        @param currentTokenPrice - current trader token price (as of the time of revenue accrued)
-     */
+    *    @param revenue - revenue (capital gain in basic token)
+    *    @param holder - user who got the revenue
+    *    @param currentTokenPrice - current trader token price (as of the time of revenue accrued)
+    */
     function _getWithdrawalCommission(uint256 revenue, address holder, int128 currentTokenPrice) internal override view returns (uint256){
         uint256 commision; //commission in basic token
         //applied for investors only. not for traders

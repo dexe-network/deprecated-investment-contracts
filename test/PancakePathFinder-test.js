@@ -31,7 +31,7 @@ function printEvents(txResult, strdata){
 
 }
 
-contract('UniswapPathFinder', (accounts) => {
+contract('PancakePathFinder', (accounts) => {
 
 
 

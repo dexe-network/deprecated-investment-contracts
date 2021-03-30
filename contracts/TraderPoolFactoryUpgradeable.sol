@@ -19,7 +19,6 @@ contract TraderPoolFactoryUpgradeable is AccessControlUpgradeable {
   address public pltBeaconAddress;
 
   address public dexeAdmin;
-
   address public wethAddress;
 
   event TraderContractCreated(address newContractAddress);
@@ -53,10 +52,21 @@ contract TraderPoolFactoryUpgradeable is AccessControlUpgradeable {
     dexeAdmin = _dexeAdmin;
   }
 
-  function createTraderContract(address _traderWallet, address _basicToken, uint256 _totalSupply, uint16[6] memory _comm, bool _actual, bool _investorRestricted, string memory name_, string memory symbol_) public returns (address){
+  /**
+  * Creates Trader Contract instance.
+  * @param _traderWallet - trader's wallet that will be managing Trader Contract
+  * @param _basicToken - basicToken for trader contract
+  * @param _totalSupply - maxTotalSupply of Trader Contract liquidity token. 0 for unlimited supply.
+  * @param _comm - commissions. Array of 3 commissions, specified in a form of natural fration each (i.e. nominator and denominator.). Format: [traderCommDenom, traderCommNom, investorCommDenom, investorCommNom, platformCommDenom, platformCommNom]
+  * @param _actual - flag for setting up "actual portfolio". Set to true to enable.
+  * @param _investorRestricted - flag to enable investor whitelist. Set to true to enable.
+  * @param _name - Trader ERC20 token name
+  * @param _symbol - Trader ERC20 token symbol
+  **/
+  function createTraderContract(address _traderWallet, address _basicToken, uint256 _totalSupply, uint16[6] memory _comm, bool _actual, bool _investorRestricted, string memory _name, string memory _symbol) public returns (address){
     address traderContractProxy = address(new BeaconProxy(traderContractBeaconAddress, bytes("")));
     address poolTokenProxy = address(new BeaconProxy(pltBeaconAddress, bytes("")));
-    IPoolLiquidityToken(poolTokenProxy).initialize(traderContractProxy, _totalSupply,name_,symbol_ );
+    IPoolLiquidityToken(poolTokenProxy).initialize(traderContractProxy, _totalSupply, _name, _symbol);
 
       /**
         address[] iaddr = [
@@ -77,17 +87,17 @@ contract TraderPoolFactoryUpgradeable is AccessControlUpgradeable {
          */
     uint256 commissions = 0;
     //trader
-    require (_comm[0] > 0,"Incorrect trader commission denom");
+    require (_comm[0] > 0, "Incorrect trader commission denom");
     commissions = commissions + _comm[0];
     commissions = commissions + (uint256(_comm[1]) << 32);
-    require (_comm[2] > 0,"Incorrect investor commission denom");
+    require (_comm[2] > 0, "Incorrect investor commission denom");
     commissions = commissions + (uint256(_comm[2]) << 64);
     commissions = commissions + (uint256(_comm[3]) << 96);
-    require (_comm[4] > 0,"Incorrect dexe commission denom");
+    require (_comm[4] > 0, "Incorrect dexe commission denom");
     commissions = commissions + (uint256(_comm[4]) << 128);
     commissions = commissions + (uint256(_comm[5]) << 160);
 
-    address[9] memory iaddr = [dexeAdmin, _traderWallet, _basicToken, wethAddress, address(paramkeeper),positionToolManager, getDexeCommissionAddress(),getInsuranceAddress(),poolTokenProxy];
+    address[9] memory iaddr = [dexeAdmin, _traderWallet, _basicToken, wethAddress, address(paramkeeper),positionToolManager, getDexeCommissionAddress(), getInsuranceAddress(), poolTokenProxy];
     // uint256[4] memory iuint = [uint256(_tcNom),uint256(_tcDenom),uint256(_icNom),uint256(_icDenom)];
 
     ITraderPoolInitializable(traderContractProxy).initialize(iaddr, commissions, _actual, _investorRestricted);

@@ -3,7 +3,7 @@ pragma solidity 0.6.6;
 
 import "./access/Ownable.sol";
 import "./access/AccessControl.sol";
-import "./assets/IPositionManager.sol";
+import "./interfaces/IParamStorage.sol";
 import "./interfaces/IAssetValuationManager.sol";
 import "./interfaces/IAssetAutomaticExchangeManager.sol";
 
@@ -18,7 +18,6 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
   //uint params storage
   mapping (uint16 => uint256) public uintParams;
   //list of trading instruments by index 
-  // mapping (uint8 => address) public instruments;
   mapping (address => bool) public assetManagers;
 
   // address public priceFeeder;
@@ -47,10 +46,6 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
     uintParams[_key] = _value;
   }
 
-  // function setPositionTool(uint8 _index, address _instrument) public onlyManager {
-  //   assetManagers[_instrument] = true;
-  //   // instruments[_index] = _instrument;
-  // }
   function setAssetAutomaticExchangeManager(address _address) public onlyManager {
       automaticExchangeManager = IAssetAutomaticExchangeManager(_address);
   }
@@ -83,23 +78,19 @@ contract ParamKeeper is Ownable, AccessControl, IParamStorage{
     return uintParams[key];
   }
 
-  function isWhitelisted(address token) public view returns (bool) {
+  function isWhitelisted(address token) public override view returns (bool) {
     return globalWhitelist[token];
   }
 
-  // function getPriceFeeder() public view returns (address) {
-  //   return priceFeeder;
-  // }
-
-  function isAllowedAssetManager(address _manager) public view returns (bool){
+  function isAllowedAssetManager(address _manager) public override view returns (bool){
      return assetManagers[_manager];
   }
 
-  function getAssetAutomaticExchangeManager() public view returns (IAssetAutomaticExchangeManager){
+  function getAssetAutomaticExchangeManager() public override view returns (IAssetAutomaticExchangeManager){
     return automaticExchangeManager;
   }
 
-  function getAssetValuationManager() public view returns (IAssetValuationManager){
+  function getAssetValuationManager() public override view returns (IAssetValuationManager){
     return valuationManager;
   }
 
