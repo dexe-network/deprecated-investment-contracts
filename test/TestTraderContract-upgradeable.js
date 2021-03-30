@@ -342,7 +342,7 @@ contract('TraderPool', (accounts) => {
             basicLiqAmount,
             toBN(0),
             path,
-            new Date().getTime() + (2 * 24 * 60 * 60 * 1000),
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
             {from: traderWallet}
         );
         

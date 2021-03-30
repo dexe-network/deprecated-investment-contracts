@@ -20,7 +20,13 @@ contract PancakeExchangeTool is IAssetExchangeManager {
     constructor() public {
     }
 
-
+    /** Exchanges tokens from Trader pool
+    * @param traderPool - trader pool address
+    * @param amountIn - amount of tokens to swap
+    * @param amountOutMin - minimum amount of result tokens to receive
+    * @param path - pancake swap exchange path
+    * @param deadline - pancake transaction dealine
+    */
     function swapExactTokensForTokens(
         address traderPool,
         uint amountIn,
