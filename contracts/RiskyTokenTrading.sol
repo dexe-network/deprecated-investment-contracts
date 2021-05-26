@@ -30,6 +30,7 @@ contract  RiskyTokenTrading {  // todo extends
         uint256 nextTradeIndex;
         uint256 lpTokenAmount;
         uint256 riskyTokenAmount;
+        // todo: share
     }
     private mapping(address => UserInfo) userInfo;
 
@@ -161,6 +162,7 @@ contract  RiskyTokenTrading {  // todo extends
             if (iter >= maxIterations) return false;
             iter += 1;
             Trade memory trade = trades[tradeIndex];
+            // todo: instead of complex formulas for `k` store `shares` per user.
             if (trade.isBuyRiskyToken){  // Buy Risky
                 uint256 newProfileLpAmount = profile.lpTokenAmount - trade.tradeLpTokenAmount * profile.lpTokenAmount / trade.poolLpTokenAmountBeforeTrade;
                 uint256 newProfileRiskyTokenAmount = profile.riskyTokenAmount + trade.tradeRiskyTokenAmount * profile.lpTokenAmount / trade.poolLpTokenAmountBeforeTrade;
