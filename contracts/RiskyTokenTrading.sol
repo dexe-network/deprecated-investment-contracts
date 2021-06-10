@@ -1,9 +1,102 @@
 // пока непонятно, нужно ли включать эту логику в основной пулл
 // скорее всего эффективнее по газу будет включить все эти функции в WhiteListPool
 
-/* БОЛЬШОЙ БОЛЬШОЙ БОЛЬШОЙ ВОПРОС
-что делать со слипеджами при оценке доли токенов итп (todo расписать проблему в чат)
+/**** ТЕРМИНОЛОГИЯ ****
+BASETOKEN - ETH/BSN
 */
+
+
+/*
+залоченные LpToken не конвертируются в РискиТокен
+но РискиТокен покупается на свободные BaseToken в WhiteListPool
+в том количестве (фиксированнов) в котором их дали юзеры
+
+эти BaseToken перечисляются со счета WhiteListPool на RiskyPool
+и при покупке RiskyToken конвертируются через ЮниСвоп
+*/
+
+
+/*
+что по поводу shares?
+когда пользователь заносит X baseToken
+а в пулле в этот момент A BaseToken и B RiskyToken
+какой у него share?
+предположим трейдер докупает Z RiskyToken за Q baseToken
+тогда эта сделка засчитывается юзеру как X * Q / (X + B)
+аналогично при продаже (но доля считается по тому, сколько за пользователем числится РискиТокенов)
+
+интересный момент:
+t0: L[0] Lp                   R[0] Risky
+t1: L[1]=L[0]-T[1].LP         R[1]=R[0]+T[1].R     buy Risky
+t2: L[2]=L[1]+UserEnter       R[2]=R[1]            user enter RiskyPool
+t3: L[3]=L[2]-T[3].LP         R[3]=R[2]+T[3].R     buy more Risky   (some Risky counts for User)
+t4:                           R[4]=0, T[4].R=-R[r] sell all Risky
+закрытие сделки на весь объем отражается на пользователе только с того момента как он вошел
+
+
+lets say, user entered the pool with L0 LPToknes ~ B0 BaseTokens
+
+
+
+
+when Trader moves funds between tokens in WhitePool
+this should not count for locked BaseTokens funds in RiskyPool
+
+вся идея таких пулов в том что все владеют в равных пропорциях всем балансом
+и сделки засчитываются всем исходя из их доли
+а тут получается что когда трейдер делает покупку на БейзТокен в ВайтПуле
+она как бы не происходит для тех юзеров для которых БейзТокены были залочены
+даже еще сложнее, она происходит но в доле (UserLpToken/AllLpToken*AllBaseTokens - LockedUserBaseTokens) / AllBaseTokens
+
+
+
+
+
+
+что происходит когда пользователь хочет выйти?
+пробегаемся по всем trades
+получаем B BaseToken, R riskyTokens которые получены по сделкам
+смотрим в UserInfo
+отделяем от РискиПула B and R
+convert R to BaseToken
+finally user has Bexit = B+Rswapped BaseTokens
+
+а заходил он с B0 BaseTokens
+
+вопрос - сколько нужно наминтить или сжечь токенов ему?
+
+
+if B0 < Bexit:
+    # seems easy
+    newLP := WhitePool.enter(Bexit)
+    transfer newLP to User
+
+
+if B0 > Bexit:
+    lost = B0 - Bexit
+    # у всех юзеров так e.g.
+    # 2000 baseToken, 3000 Atoken, 6000 Btoken    ~ 2000 LP
+    # у нашего юзера который лочил baseToken, делал типа сделки вслед за RiskyPool пропорционально своей доле и потерял токены, теперь так
+    # 100 baseToken, 300 Atoken, 600 Btoken       ~ раньше было 200LP но теперь дизбаланс
+    # нужно перевести баланс с других токенов в baseToken до того момента пока пропорции не станут такие же, как у остальных юзеров
+    # станет как-то так
+    # 130 base     195 A        390 B             ~ теперь 130LP
+
+    #нужно сделать этот перевод и сжечь LP tokens
+
+
+
+at enter time:
+   WhitePool Tbase, T1, T2
+
+at exit time:
+   балансы всех токенов WhitePool изменились
+   пропорции поменялись чтобы
+
+
+
+*/
+
 
 contract  RiskyTokenTrading {  // todo extends
 
