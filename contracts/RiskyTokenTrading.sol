@@ -98,39 +98,69 @@ at exit time:
 */
 
 
+
+
+
+// v2
+/*
+Vitalii Maistrenko BillTrade, [03.06.21 11:08]
+LP токены должны лочится в риск пуле в момент открытия   трейдером рискованой позиции
+дальше при закрытии позиции возвращаемое юзеру количество токенов это количество основного ресурса полученого от закрития позитии пропорционально количеству локнутых этому юзеру токенов разделенное на текущую цену LP токена
+
+
+к примеру у юзера было 400 LP
+юзер закинул на риск трейдинг
+200 LP с ценой одного LP 1$
+трейдер открыл рискованую сделку на 100 LP даного юзера
+
+в момент закрытия сделки цена LP изменилась к примеру от трейдинга в основном пуле и составляет 2$
+
+рискованую сделку трейдер закрыл с профитом х10
+cчвсть юзера на его 100 локнутых LP составляет 1000$
+
+100 LP токенов юзера что были локнуты превращаются в
+
+1000$/2$ = 500 LP (нужно довыпустить и начислить 400 LP)
+
+таким образом количество токенов юзера равняется
+(400 LP - 100 LP) + 1000$/2$ = 800 LP
+
+Vitalii Maistrenko BillTrade, [03.06.21 11:10]
+то что мы тогда придумали что в основном пуле нужно что б юзер получал профит только на оставшиеся токены верно но вот для этого количество токенов юзера не нужно уменьшать или увеличивать эту задачу какраз решает лок токенов при открытой позиции в риск токене и изменение его количества по результатам
+
+Vitalii Maistrenko BillTrade, [15.06.21 05:34]
+если юзер хочет вывести свои средства с пула отправив Lp обратно в пул
+берем пропорционально с свободных средств пула + пропорционально закрывает все позиции и что получилось отправляем юзеру
+
+Vitalii Maistrenko BillTrade, [15.06.21 05:35]
++ все расходы по закрытию в этот момент позиций оплачивает юзер что это все затеял
+
+Vitalii Maistrenko BillTrade, [15.06.21 05:36]
+просто выдавать средства с свободных не вариант так как трейдер оставляет их для усреднения а если мы их отдадим просто юзеру то просто подставим трейдера
+*/
+
+
 contract  RiskyTokenTrading {  // todo extends
+    public IERC20 lpToken;
+    public IERC20 riskToken;
+    public IERC20 baseToken;
 
     /*
-        в качестве токена, на который трейдер совершат покупку RiskyToken будет выступать LpToken
+        в качестве токена, на который трейдер совершат покупку RiskyToken будет выступать BaseToken
         т.к. если бы выступал underlyingToken то см. замечание ниже
-
-        если рейт конвертации baseToken в liquidityToken не постоянный
-        а в распоряжение трейдера попадает указанное пользователем количество baseToken из whiteListPool
-        при этом liquidityToken закрепляется за ПНЛ Хтокена
-
-        не будет ли такое, что цена baseToken по отношению к liquidityToken будет постоянно меняться
-        и количество закрепленных за ПНЛ-Х liquidityToken нужно постоянно перерассчитывать?
     */
-    // todo: remove, userInfo will be used , see explanations in _recalculateUserDeposit
-    //    private mapping(address => uint256) userLockedLpTokenAmounts;
-
-
-    /* здесь будет время с которого юзер еще не получал вознаграждение */
-    // todo: remove, userInfo will be used see explanations in _recalculateUserDeposit
-    //    private mapping(address => uint256) userClaimableTimeStart;  // maybe use indexOf trades
 
     struct UserInfo{
         uint256 nextTradeIndex;
-        uint256 lpTokenAmount;
         uint256 riskyTokenAmount;
-        // todo: share
+        uint256 allowedBaseTokenAmount;
+        uint256 lockedLpTokenAmount;
+        uint256 unusedBaseTokenAmount;
     }
     private mapping(address => UserInfo) userInfo;
 
 
-    address lpSwapper; // умный контракт конвертирующий lpToken в рискиТокен и обратно,
-    // там должен происходить withdraw lpTokens из whiteListPool в underlyingToken и потом обмен на юнисвоп underlying -> risky
-
+    address swapper; // uniswap
 
     /*
     при этом трейдер может динамически менять количество купленных Х токенов?
@@ -138,39 +168,45 @@ contract  RiskyTokenTrading {  // todo extends
     и когда пользователь хочет снять свой выйгрышь итерироваться по нему чтобы понять сколько он выйграл или проиграл с учетом его доли в трейдингеХ и с учетом количества купленных/проданных Х в каждом трейде
     see explanations in _recalculateUserDeposit
     */
-    struct Trade {
+    // нужно как-бы посчитать долю каждого юзера в риск-трейде
+    // на риск трейд будет потрачено Х бейзтокенов
+    // в тот момент фиксируется
+    struct RiskTrade {
         bool isBuyRiskyToken;  // true=buy, false=sell
-        uint256 poolLpTokenAmountBeforeTrade;
         uint256 poolRiskyTokenAmountBeforeTrade;
-        uint256 tradeLpTokenAmount;
+        uint256 poolUnusedBaseTokenAmountBeforeTrade;
+        uint256 tradeBaseTokenAmount;
         uint256 tradeRiskyTokenAmount;
     }
+    // после успешного трейда allowance lpTokens for risk trade from User не меняется,
+    //   новые Lp идут ему на основной баланс
     private uint256 riskyTokenAmount;  // общее колво купленных токенов на данный момент
-    private uint256 lpTokenAmount;  // общее колво lp токенов in the RiskyPool на данный момент
-    Trade[] private[] trades;  // history of trades sorted by time
+    private uint256 lpTokenAmount;  // общее колво lp токенов allowed на данный момент
+    // тут еще есть тонкий момент с тем что покупаем riskToken мы не на LpToken а на BaseToken пропоцрионально доле в пуле
+    //   и в разные моменты времени LpToken соответствует разному количество BaseToken
+    RiskTrade[] private[] trades;  // history of trades sorted by time
 
     function recalculateUserInfo(uint256 maxIterations) external onlyTrader noReentrant {
         _recalculateUserDeposit(msg.sender, maxIterations);
     }
 
-    function depositLpToken(uint256 _depositLpTokenAmount) external onlyTrader noReentrant {
+    // todo increase or set?
+    function allowLpToken(uint256 _lpTokenAmount) external onlyTrader noReentrant {
+        /*
+        LP токены должны лочится в риск пуле в момент открытия трейдером рискованой позиции
+        */
         require(
             _recalculateUserDeposit(msg.sender, 100),
             "TOO_MANY_UNPROCESSED_ITERATIONS, out-of-gas danger, call recalculateUserInfo over trades manually");
 
-        lpToken.safeTransferFrom(msg.sender, address(this), _depositLpTokenAmount);
-        riskyTokenEquivalentInLpTokens = lpSwapper.calculateRiskyInLp(lpRiskyTokenAmount)  // сколько будут стоит риски Токены пула в ЛпТокен
-
-        uint256 proportionalLpToken = _depositLpTokenAmount * lpTokenAmount / (lpTokenAmount + riskyTokenEquivalentInLpTokens);
-        uint256 proportionalConvertToRiskyToken = _depositLpTokenAmount - proportionalLpToken;
-
-        lpToken.approve(0);
-        lpToken.approve(address(lpSwapper), proportionalConvertToRiskyToken);
-        gotRiskyToken = lpSwapper.swapLpToRisky(proportionalConvertToRiskyToken);
+        require(userLpAllowance[msg.sender] == 0, "increase is not implemented yet");  // todo increase or set
+        userLpAllowance[msg.sender] = _lpTokenAmount;
+        _totalLpAllowance += _lpTokenAmount;
+        _unusedLpAllowance += _lpTokenAmount;
 
         UserInfo memory profile = userInfo[msg.sender];
-        profile.lpTokenAmount += proportionalLpToken;
-        profile.riskyTokenAmount += gotRiskyToken;
+        profile.allowedBaseTokenAmount += _lpTokenAmount;
+        profile.unusedBaseTokenAmount += _lpTokenAmount;
         userInfo[msg.sender] = profile;
 
         emit UserDeposited(proportionalLpToken, gotRiskyToken);
@@ -241,7 +277,7 @@ contract  RiskyTokenTrading {  // todo extends
          */
 
 
-        UserInfo memory profile = userInfo[msg.sender];
+        UserInfo memory profile = userInfo[msg.sender];  // this remain const during the whole period of recalculation
 
         if ((info.lpTokenAmount == 0) && (info.riskyTokenAmount == 0)) {
         /* если депозита нет то и процессить трейды смысла нет */
@@ -251,42 +287,55 @@ contract  RiskyTokenTrading {  // todo extends
         }
 
         uint256 iter = 0;
-        for (uint tradeIndex = info.nextTradeIndex; tradeIndex < trades.length; ++tradeIndex){
+        for (uint256 tradeIndex = info.nextTradeIndex; tradeIndex < trades.length; ++tradeIndex){
+            // !!!!!!!!!!!!!!!!!!!!!!!!!
+            // важное замечание
+            // что если трейдер после того как сделал риски трейдер
+            // перевел бейз токены на А или Б
+            // что делать с юзером все бейз токены которого потерялись в риски трейдинге
+            // !!!!!!!!!!!!!!!!!!!!!!!!!
+            uint256 baseTokenBalance = 0;
+            uint256 riskyTokenBalance = 0;
             if (iter >= maxIterations) return false;
             iter += 1;
-            Trade memory trade = trades[tradeIndex];
+            RiskTrade memory trade = trades[tradeIndex];
             // todo: instead of complex formulas for `k` store `shares` per user.
+
+            // todo user set allowance in LpToken or in BaseToken, i think in baseTokens
+            //   but what to do if trader wants to swap all baseTokens
             if (trade.isBuyRiskyToken){  // Buy Risky
-                uint256 newProfileLpAmount = profile.lpTokenAmount - trade.tradeLpTokenAmount * profile.lpTokenAmount / trade.poolLpTokenAmountBeforeTrade;
-                uint256 newProfileRiskyTokenAmount = profile.riskyTokenAmount + trade.tradeRiskyTokenAmount * profile.lpTokenAmount / trade.poolLpTokenAmountBeforeTrade;
-                profile.lpTokenAmount = newProfileLpAmount;
-                profile.riskyTokenAmount = newProfileRiskyTokenAmount;
+                uint256 shareTradeBaseTokenAmount = trade.tradeBaseTokenAmount * profile.unusedBaseTokenAmount / trade.poolUnusedBaseTokenAmountBeforeTrade;
+                uint256 shareTradeRiskyTokenAmount = trade.tradeRiskyTokenAmount * profile.unusedBaseTokenAmount / trade.poolUnusedBaseTokenAmountBeforeTrade;
+                profile.unusedBaseTokenAmount -= shareTradeBaseTokenAmount;
+                profile.riskyTokenAmount += shareTradeRiskyTokenAmount;
             } else { // Sell Risky
-                uint256 newProfileLpTokenAmount = profile.lpTokenAmount + trade.tradeLpTokenAmount * profile.riskyTokenAmount / trade.poolRiskyTokenAmountBeforeTrade;
-                uint256 newProfileRiskyTokenAmount = profile.riskyTokenAmount - trade.tradeRiskyTokenAmount * profile.riskyTokenAmount / trade.poolRiskyTokenAmountBeforeTrade;
-                profile.lpTokenAmount = newProfileLpAmount;
-                profile.riskyTokenAmount = newProfileRiskyTokenAmount;
+                uint256 shareTradeBaseTokenAmount = trade.tradeBaseTokenAmount * profile.riskyTokenAmount / trade.poolRiskyTokenAmountBeforeTrade;
+                uint256 shareTradeRiskyTokenAmount = trade.tradeRiskyTokenAmount * profile.riskyTokenAmount / trade.poolRiskyTokenAmountBeforeTrade;
+                profile.unusedBaseTokenAmount += shareTradeBaseTokenAmount;
+                profile.riskyTokenAmount -= shareTradeRiskyTokenAmount;
             }
         }
         return true;
     }
 
-    // снимает какую-то долю шейра юзера
-    // todo вообще эту функицию нужно заменить наверное на указание кол-ва лп токенов который хочет снять юзер
-    // и из этого числа высчитывать какую долю шейра снимать
-    function withdrawShare(uint256 shareNumerator, uint256 shareDenominator) external onlyTrader noReentrant {
+    // снимает долю пользователя  todo: partial withdraw
+    function withdrawShare() external onlyTrader noReentrant {
+        /*
+        дальше при закрытии позиции возвращаемое юзеру количество токенов это
+        количество основного ресурса полученого от закрития позитии пропорционально
+        количеству локнутых этому юзеру токенов разделенное на текущую цену LP токена
+        */
+
         require(
             _recalculateUserDeposit(msg.sender, 100),
             "TOO_MANY_UNPROCESSED_ITERATIONS, out-of-gas danger, call recalculateUserInfo over trades manually");
 
         UserInfo memory profile = userInfo[msg.sender];
 
-        withdrawLpAmount = profile.lpTokenAmount * shareNumerator / shareDenominator;
-        withdrawRiskyAmount = profile.riskyTokenAmount * shareNumerator / shareDenominator;
-
-        uint256 swapLp = lpSwapper.convertRiskyToLp(withdrawRiskyAmount);
-        uint256 totalLp = withdrawLpAmount + swapLp;
-        lpToken.safeTransfer(msg.sender, totalLp);
+        withdrawRiskyAmount = profile.riskyTokenAmount;
+        uint256 baseTokenAmountFromRisky = swapper.swap([riskyToken, baseToken], withdrawRiskyAmount);
+        withdrawBaseAmount = profile.unusedBaseTokenAmount + baseTokenAmountFromRisky;
+        baseToken.safeTransfer(msg.sender, totalLp);
         emit ShareWithdrawn(/*...*/);
     }
 
@@ -300,11 +349,17 @@ contract  RiskyTokenTrading {  // todo extends
     function offerRiskyTokenTrading(/*...*/) external onlyTrader noReentrant;
 
 
-    function buyRiskyTokenForLp(uint256 swapLpTokenAmount, uint256 minRiskyAmount) {
-        uint256 swapRiskyAmount = uniswap.swap([lpToken, riskyToken], swapLpTokenAmount, minRiskyAmount);
-        trades.append(Trade({
+    function buyRiskyTokenForLp(uint256 swapBaseTokenAmount, uint256 minRiskyAmount) {
+        uint256 baseTokenAllowance = _unusedLpAllowance * pool.balanceOf(baseToken) / pool.totalLpTokenSupply;
+        require(baseTokenAllowance >= swapBaseTokenAmount, "not enough base tokens");
+        uint256 usedLpTokenAllowance = swapBaseTokenAmount * pool.totalLpTokenSupply / pool.balanceOf(baseToken);
+        _unusedLpAllowance -= usedLpTokenAllowance;
+
+        baseToken.safeTransferFrom(mainPool, address(this), swapBaseTokenAmount);
+        uint256 swapRiskyAmount = uniswap.swap([baseToken, riskyToken], swapBaseTokenAmount, minRiskyAmount);
+        trades.append(RiskTrade({
             isBuyRiskyToken: true,
-            poolLpTokenAmountBeforeTrade: lpTokenAmount,
+            poolAllowedLpTokenAmountBeforeTrade: lpTokenAmount,
             poolRiskyTokenAmountBeforeTrade: riskyTokenAmount,
             tradeLpTokenAmount: swapLpTokenAmount,
             tradeRiskyTokenAmount: swapRiskyAmount
@@ -313,17 +368,17 @@ contract  RiskyTokenTrading {  // todo extends
         riskyTokenAmount += swapRiskyAmount;
     }
 
-    function sellRiskyTokenForLp(uint256 swapRiskyTokenAmount, uint256 minLpAmount) {
-        uint256 swapLpTokenAmount = uniswap.swap([riskyToken, lpToken], swapRiskyTokenAmount, minLpAmount);
-        trades.append(Trade({
-            isBuyRiskyToken: false,
-            poolLpTokenAmountBeforeTrade: lpTokenAmount,
-            poolRiskyTokenAmountBeforeTrade: riskyTokenAmount,
-            tradeLpTokenAmount: swapLpTokenAmount,
-            tradeRiskyTokenAmount: swapRiskyTokenAmount
-        }));
-        lpTokenAmount += swapLpTokenAmount;
-        riskyTokenAmount -= swapRiskyAmount;
+    function sellRiskyTokenForBase(uint256 swapRiskyTokenAmount, uint256 minBaseAmount) {
+        uint256 swapBaseTokenAmount = uniswap.swap([baseToken, riskyToken], swapRiskyTokenAmount, minBaseAmount);
+//        trades.append(RiskTrade({
+//            isBuyRiskyToken: false,
+//            poolAllowedLpTokenAmountBeforeTrade: lpTokenAmount,
+//            poolRiskyTokenAmountBeforeTrade: riskyTokenAmount,
+//            tradeLpTokenAmount: swapLpTokenAmount,
+//            tradeRiskyTokenAmount: swapRiskyTokenAmount
+//        }));
+//        lpTokenAmount += swapLpTokenAmount;
+//        riskyTokenAmount -= swapRiskyAmount;
     }
 }
 
