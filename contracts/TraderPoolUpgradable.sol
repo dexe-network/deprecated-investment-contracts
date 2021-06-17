@@ -11,10 +11,10 @@ import "./interfaces/IAssetValuationManager.sol";
 import "./interfaces/IAssetAutomaticExchangeManager.sol";
 import "./interfaces/ITraderPool.sol";
 
-contract TraderPoolUpgradeable 
-    is 
-    AccessControlUpgradeable, 
-    PausableUpgradeable, 
+contract TraderPoolUpgradeable
+    is
+    AccessControlUpgradeable,
+    PausableUpgradeable,
     PoolUpgradeable,
     ITraderPoolInitializable,
     ITraderPool
@@ -62,7 +62,7 @@ contract TraderPoolUpgradeable
         //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
         return uint32(10010001);
     }
-    
+
     function initialize(address[9] memory iaddr, uint256 _commissions, bool _actual, bool _investorRestricted) public override initializer{
         /**
         address[] iaddr = [
@@ -107,9 +107,9 @@ contract TraderPoolUpgradeable
 
         dexeCommissionAddress = iaddr[6];
         insuranceContractAddress = iaddr[7];
-        paramkeeper = IParamStorage(iaddr[4]);  
+        paramkeeper = IParamStorage(iaddr[4]);
         storageVersion = version();
-    
+
     }
 
     /**
@@ -163,7 +163,7 @@ contract TraderPoolUpgradeable
 
     /**
     * removes investors from whitelist. Investors whitelist is applied if isInvestorsWhitelistEnabled == 'true' only;
-    * @param _investors - array of investors addresses 
+    * @param _investors - array of investors addresses
     */
     function removeInvestorAddress (address[] memory _investors) public onlyTrader {
         for(uint i=0;i<_investors.length;i++){
@@ -184,20 +184,26 @@ contract TraderPoolUpgradeable
         require (fromAsset != address(0), "incorrect fromAsset param");
         require (toAsset != address(0), "incorrect toAsset param");
         require(hasRole(TRADER_ROLE, caller), "Caller is not the Trader");
-        //1. check assetFrom price, multiply by amount, check resulting amount less then Leverage allowed. 
+        //1. check assetFrom price, multiply by amount, check resulting amount less then Leverage allowed.
         {
             require(paramkeeper.isWhitelisted(toAsset) || traderWhitelist[toAsset] || toAsset == address(basicToken),"Position toToken address to be whitelisted");
             uint256 maxAmount = this.getMaxPositionOpenAmount();
             uint256 spendingAmount;
-            if(fromAsset == address(basicToken)) {
+
+            if(toAsset == address(basicToken)) {
                 spendingAmount = fromAmt;
+                require(spendingAmount <= pAssetAmt[fromAsset], "Amount reached maximum available");
             } else {
-                spendingAmount = pAmtOpened[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
+                if(fromAsset == address(basicToken)) {
+                    spendingAmount = fromAmt;
+                } else {
+                    spendingAmount = pAmtOpened[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
+                }
+                require(spendingAmount <= maxAmount, "Amount reached maximum available");
             }
-            require(spendingAmount <= maxAmount, "Amount reached maximum available");
         }
         uint256 fromSpent;
-        uint256 toGained; 
+        uint256 toGained;
         //2. perform exchange
         {
             uint256 fromAssetBalanceBefore = IERC20Upgradeable(fromAsset).balanceOf(address(this));
@@ -230,7 +236,7 @@ contract TraderPoolUpgradeable
             //remove closed position
             if(pAmtOpened[fromAsset] == 0){
                 _deletePosition(fromAsset);
-            } 
+            }
 
             uint256 operationTraderCommission;
             uint256 finResB;
@@ -249,14 +255,14 @@ contract TraderPoolUpgradeable
                     operationTraderCommission = traderFine.mulu(operationTraderCommission);
                 }
 
-                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
+                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);
                 uint256 operationDeXeCommission = operationTraderCommission.mul(dexeCommissionPercentNom).div(dexeCommissionPercentDenom);
                 dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
                 traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
 
                 emit Profit(finResB);
             }
-            //loss 
+            //loss
             else {
                 finResB = originalSpentValue.sub(toGained);
                 operationTraderCommission = 0;
@@ -273,18 +279,18 @@ contract TraderPoolUpgradeable
                 //open new position
             if(pAmtOpened[toAsset] == 0){
                 assetTokenAddresses.push(toAsset);
-            } 
+            }
 
             pAmtOpened[fromAsset] = pAmtOpened[fromAsset].mul(pFromLiq.sub(fromSpent)).div(pFromLiq);
             pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
 
-            pAmtOpened[toAsset] = pAmtOpened[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpened[toAsset]); 
+            pAmtOpened[toAsset] = pAmtOpened[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpened[toAsset]);
             pAssetAmt[toAsset] = pToLiq.add(toGained);
 
             //remove closed position
             if(pAmtOpened[fromAsset] == 0){
                 _deletePosition(fromAsset);
-            }        
+            }
         }
 
     }
@@ -305,7 +311,7 @@ contract TraderPoolUpgradeable
     }
 
     /**
-    * returns amount of positions in Positions array, i.e. amount of Open positions 
+    * returns amount of positions in Positions array, i.e. amount of Open positions
     */
     function positionsLength() external view returns (uint256) {
         return assetTokenAddresses.length;
@@ -315,8 +321,8 @@ contract TraderPoolUpgradeable
     * returns Posision data from array at the @param _index specified. return data:
     *    1) amountOpened - the amount of Basic Tokens a position was opened with.
     *    2) liquidity - the amount of Destination tokens received from exchange when position was opened.
-    *    3) token - the address of ERC20 token that position was opened to 
-    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+    *    3) token - the address of ERC20 token that position was opened to
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.
     */
     function positionAt(uint16 _index) external view returns (uint256,uint256,address) {
         require(_index < assetTokenAddresses.length);
@@ -328,15 +334,15 @@ contract TraderPoolUpgradeable
     * returns Posision data from array for the @param asset:
     *    1) amountOpened - the amount of Basic Tokens a position was opened with.
     *    2) liquidity - the amount of Destination tokens received from exchange when position was opened.
-    *    3) token - the address of ERC20 token that position was opened to 
-    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+    *    3) token - the address of ERC20 token that position was opened to
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.
     */
     function positionFor(address asset) external view returns (uint256,uint256,address) {
         return (pAmtOpened[asset], pAssetAmt[asset], asset);
     }
 
     /**
-    * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
+    * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract.
     * @param amount - amount of commission to withdraw (allows for partial withdrawal)
     */
     function withdrawTraderCommission(uint256 amount) public onlyTrader {
@@ -344,7 +350,7 @@ contract TraderPoolUpgradeable
         basicToken.safeTransfer(traderCommissionAddress, amount);
         traderCommissionBalance = traderCommissionBalance.sub(amount);
     }
-    
+
     /**
     * initiates withdraw of the Dexe commission onto the Platform Commission address. Anyone can trigger this function
     * @param amount - amount of commission to withdraw (allows for partial withdrawal)
@@ -357,7 +363,7 @@ contract TraderPoolUpgradeable
 
 
     /**
-    * Change traderCommission address. The address that trader receives his commission out from this contract. 
+    * Change traderCommission address. The address that trader receives his commission out from this contract.
     * @param _traderCommissionAddress - new trader commission address
     */
     function setTraderCommissionAddress(address _traderCommissionAddress) public onlyTrader {
@@ -366,7 +372,7 @@ contract TraderPoolUpgradeable
 
     //TODO: apply governance here
     /**
-    * set external commission percent in a form of natural fraction: _nom/_denom. 
+    * set external commission percent in a form of natural fraction: _nom/_denom.
     * @param _type - commission type (1 for trader commission, 2 for investor commission, 3 for platform commission)
     * @param _nom - nominator of the commission fraction
     * @param _denom - denominator of the commission fraction
@@ -377,7 +383,7 @@ contract TraderPoolUpgradeable
         uint16[6] memory coms;
         (coms[0],coms[1]) = _getCommission(1);
         (coms[2],coms[3]) = _getCommission(2);
-        (coms[4],coms[5]) = _getCommission(3);  
+        (coms[4],coms[5]) = _getCommission(3);
         if(_type == 1){
             //trader
             coms[0] = _nom;
@@ -390,7 +396,7 @@ contract TraderPoolUpgradeable
             //dexe commission
             coms[4] = _nom;
             coms[5] = _denom;
-        } 
+        }
         uint256 _commissions = 0;
         _commissions = _commissions.add(coms[0]);
         _commissions = _commissions.add(uint256(coms[1]) << 32);
@@ -404,7 +410,7 @@ contract TraderPoolUpgradeable
     }
 
     /**
-    * put contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
+    * put contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds.
     */
     function pause() onlyAdmin public {
         super._pause();
@@ -438,35 +444,35 @@ contract TraderPoolUpgradeable
     }
 
     // /**
-    // * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    // * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations.
     // * @param key - ID of address parameter;
     // */
     // function getAddress(uint16 key) external override view returns (address){
     //     return paramkeeper.getAddress(key);
     // }
     // /**
-    // * returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    // * returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations.
     // * @param key - ID of uint256 parameter;
     // */
     // function getUInt256(uint16 key) external override view returns (uint256){
     //     return paramkeeper.getUInt256(key);
     // }
-    
+
     /**
     * returns the data of the User:
     *    1) total amount of BasicTokens deposited (historical value)
     *    2) average traderToken price of the investor deposit (historical value)
-    *    3) current amount of TraderPool liquidity tokens that User has on the balance. 
-    * @param holder - address of the User's wallet. 
+    *    3) current amount of TraderPool liquidity tokens that User has on the balance.
+    * @param holder - address of the User's wallet.
      */
     function getUserData(address holder) public view returns (uint256, int128, uint256) {
         return (deposits[holder].amount, deposits[holder].price, IERC20Token(plt).balanceOf(holder));
     }
 
     /**
-    * returns total cap values for this contract: 
+    * returns total cap values for this contract:
     * 1) totalCap value - total capitalization, including profits and losses, denominated in BasicTokens. i.e. total amount of BasicTokens that porfolio is worhs of.
-    * 2) totalSupply of the TraderPool liquidity tokens (or total amount of trader tokens sold to Users). 
+    * 2) totalSupply of the TraderPool liquidity tokens (or total amount of trader tokens sold to Users).
     * Trader token current price = totalCap/totalSupply;
     */
     function getTotalValueLocked() public view returns (uint256, uint256){
@@ -515,9 +521,9 @@ contract TraderPoolUpgradeable
                 uint256 fundPositionAmt = amountTokenSent.mul(pAmtOpened[assetTokenAddresses[i]]).div(totalOpened);
                 if(fundPositionAmt < amoutTokenLeft)//underflow with division
                     fundPositionAmt = amoutTokenLeft;
-                
+
                 uint256 fromSpent;
-                uint256 toGained; 
+                uint256 toGained;
                 //perform automatic exchange
                 {
                     uint256 fromAssetBalanceBefore = basicToken.balanceOf(address(this));
@@ -563,7 +569,7 @@ contract TraderPoolUpgradeable
         }
     }
 
- 
+
     function _getCommission(uint256 _type) internal view returns (uint16,uint16){
         uint16 denom;
         uint16 _nom;
@@ -573,11 +579,11 @@ contract TraderPoolUpgradeable
             _nom = uint16((commissions & 0x000000000000000000000000000000000000000000000000FFFFFFFF00000000) >> 32);
         } else if (_type == 2) {
             //investor commission
-            denom =uint16((commissions & 0x0000000000000000000000000000000000000000FFFFFFFF0000000000000000) >> 64); 
+            denom =uint16((commissions & 0x0000000000000000000000000000000000000000FFFFFFFF0000000000000000) >> 64);
             _nom = uint16((commissions & 0x00000000000000000000000000000000FFFFFFFF000000000000000000000000) >> 96);
         } else if (_type == 3) {
             //dexe commission
-            denom =uint16((commissions & 0x000000000000000000000000FFFFFFFF00000000000000000000000000000000) >> 128); 
+            denom =uint16((commissions & 0x000000000000000000000000FFFFFFFF00000000000000000000000000000000) >> 128);
             _nom = uint16((commissions & 0x0000000000000000FFFFFFFF0000000000000000000000000000000000000000) >> 160);
         } else {
             _nom = uint16(0);
