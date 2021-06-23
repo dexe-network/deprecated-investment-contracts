@@ -1,0 +1,316 @@
+// SPDX-License-Identifier: Unlicensed
+pragma solidity 0.8.4;
+
+
+// пока непонятно, нужно ли включать эту логику в основной пулл
+// скорее всего эффективнее по газу будет включить все эти функции в WhiteListPool
+
+/**** ТЕРМИНОЛОГИЯ ****
+BASETOKEN - ETH/BSN
+*/
+
+
+/*
+залоченные LpToken не конвертируются в РискиТокен
+но РискиТокен покупается на свободные BaseToken в WhiteListPool ??? ??? ???
+в том количестве (фиксированнов) в котором их дали юзеры
+
+эти BaseToken перечисляются со счета WhiteListPool на RiskyPool в момент открытия position on RiskToken ??? ???
+*/
+
+
+/*
+что происходит когда пользователь хочет выйти?
+вопрос - сколько нужно наминтить или сжечь токенов ему?
+*/
+
+
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import {SafeERC20} from '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import {ERC20PresetMinterPauser} from '@openzeppelin/contracts/token/ERC20/presets/ERC20PresetMinterPauser.sol';
+import {EnumerableSet} from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
+
+
+interface ISwapper {
+    function priceOf(address tokenFrom, address tokenTo) external view returns(FractionLib.Fraction memory);
+    function swap(address tokenFrom, address tokenTo, uint256 amountFrom, uint256 minAmountTo) external returns(uint256);
+}
+
+library FractionLib{
+    struct Fraction {
+        uint256 numerator;
+        uint256 denominator;
+    }
+}
+
+contract SwapperMock {
+    using SafeERC20 for IERC20;
+
+    mapping(address => mapping(address => FractionLib.Fraction)) internal prices;
+
+    function priceOf(address tokenFrom, address tokenTo) public view returns(FractionLib.Fraction memory result) {
+        result = prices[tokenFrom][tokenTo];
+    }
+
+    // todo slippage
+    function setPrice(address tokenFrom, address tokenTo, uint256 numerator, uint256 denominator) external {
+        require(numerator > 0);
+        require(denominator > 0);
+        prices[tokenFrom][tokenTo] = FractionLib.Fraction(numerator, denominator);
+        prices[tokenTo][tokenFrom] = FractionLib.Fraction(denominator, numerator);  // todo discuss
+    }
+
+    function swap(
+        address tokenFrom, address tokenTo, uint256 amountFrom, uint256 minAmountTo
+    ) public returns(uint256) {
+        FractionLib.Fraction memory f = prices[tokenFrom][tokenTo];
+        require(f.denominator != 0, "zero denominator");
+        uint256 amountTo = amountFrom * f.numerator / f.denominator;
+        require(amountTo >= minAmountTo, "small amountTo");
+        IERC20(tokenFrom).safeTransferFrom(msg.sender, address(this), amountFrom);
+        IERC20(tokenTo).safeTransfer(msg.sender, amountTo);
+        return amountTo;
+    }
+}
+
+
+//interface IERC20MintableBurnable is IERC20 {
+//    function mint(address to, uint256 amount) public;
+//    function burn(uint256 amount) public;
+//    function burnFrom(address account, uint256 amount) public;
+//}
+
+
+contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
+    using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    /*
+        в качестве токена, на который трейдер совершат покупку RiskyToken будет выступать BaseToken
+        todo: что если рейт конвертации baseToken в liquidityToken не постоянный
+          а в распоряжение трейдера попадает указанное пользователем количество baseToken из whiteListPool
+          при этом liquidityToken закрепляется за ПНЛ Хтокена.
+          не будет ли такое, что цена baseToken по отношению к liquidityToken будет постоянно меняться
+          и количество закрепленных за ПНЛ-Х liquidityToken нужно постоянно перерассчитывать?
+    */
+
+    EnumerableSet.AddressSet internal tokens;
+    IERC20 public baseToken;
+    ERC20PresetMinterPauser public lpToken;
+    IERC20 public riskyToken;
+    /* todo maybe its a good idea to cache balances to avoid expensive external balanceOf calls
+         but it's less safe
+    */
+
+    struct UserInfo{
+        uint256 lpTokenAmount;  // сколько у юзера lp tokens
+        uint256 riskyAllowedLp;  // allowance дается в LP tokens  //todo вот тут короче я не уверен
+        uint256 lockedLp;  // лочатся в ценах basePrice
+        uint256 riskyTokenAmount;  // доля юзера в купленных risky
+    }
+    uint256 public totalLockedLp;
+    uint256 public totalAllowedLp;
+    mapping(address => UserInfo) internal userInfo;
+    EnumerableSet.AddressSet internal users;
+
+    ISwapper public swapper;  // todo: uniswap
+
+    /*
+    при этом трейдер может динамически менять количество купленных Х токенов?
+    тогда придется держать массив в сторадже trades
+    и когда пользователь хочет снять свой выйгрышь итерироваться по нему чтобы понять сколько он выйграл или проиграл
+    с учетом его доли в трейдингеХ и с учетом количества купленных/проданных Х в каждом трейде
+    see explanations in _recalculateUserDeposit
+    */
+    struct Trade {
+        bool isBuyRiskyToken;  // true=buy, false=sell
+        uint256 poolLpTokenAmountBeforeTrade;  // нужно для оценки доли юзера с его Lp токенами в этом трейде
+          // todo возможно нужно использовать BaseTokens
+        uint256 poolRiskyTokenAmountBeforeTrade;
+        uint256 tradeLpTokenAmount;
+        uint256 tradeRiskyTokenAmount;
+    }
+
+    constructor(address _baseToken, address _lpToken, address _riskyToken, address _swapper){
+//        lpToken = new ERC20PresetMinterPauser("LpToken", "LP");  //todo uncomment
+        require(_lpToken != address(0), "0 addr");
+        lpToken = ERC20PresetMinterPauser(_lpToken);
+        require(lpToken.totalSupply() == 0, "lp supply > 0");
+        require(_riskyToken != address(0), "0 addr");
+        riskyToken = IERC20(_riskyToken);
+        require(_baseToken != address(0), "0 addr");
+        baseToken = IERC20(_baseToken);
+        require(_swapper != address(0), "0 addr");
+        swapper = ISwapper(_swapper);
+    }
+
+    /*********** white list functions ***************/
+
+    function addToken(address token) public {
+        tokens.add(token);
+    }
+
+    function removeToken(address token) public {
+        tokens.remove(token);
+    }
+
+    function addUser(address user) public {
+        users.add(user);
+    }
+
+    function removeUser(address user) public {
+        users.remove(user);
+    }
+
+    function deposit(uint256 amount) public returns(uint256) {  // todo very naive, this is responsibility of user here
+        uint256 lpSupply = lpToken.totalSupply();
+        if (lpSupply == 0) {
+            baseToken.safeTransferFrom(msg.sender, address(this), amount);
+            lpToken.mint(msg.sender, amount);
+            return amount;
+        }
+        baseToken.safeTransferFrom(msg.sender, address(this), baseToken.balanceOf(address(this)) * amount / lpSupply);
+        for(uint256 i=0; i < tokens.length(); ++i) {
+            IERC20 token = IERC20(tokens.at(i));
+            token.safeTransferFrom(msg.sender, address(this), token.balanceOf(address(this)) * amount / lpSupply);
+        }
+        lpToken.mint(msg.sender, amount);
+        return amount;
+    }
+
+    function withdraw(uint256 amount) public returns(uint256) {
+        require(amount > 0, "amount is zero");
+        uint256 lpSupply = lpToken.totalSupply();
+        require(amount <= lpSupply, "amount is too big");
+        baseToken.safeTransfer(msg.sender, baseToken.balanceOf(address(this)) * amount / lpSupply);
+        for(uint256 i=0; i < tokens.length(); ++i) {
+            IERC20 token = IERC20(tokens.at(i));
+            token.safeTransfer(msg.sender, token.balanceOf(address(this)) * amount / lpSupply);
+        }
+        lpToken.burnFrom(msg.sender, amount);
+        return amount;
+    }
+
+    function swap(address tokenFrom, address tokenTo, uint256 amountFrom, uint256 minAmountTo) public onlyOwner {
+        // todo assert tokenFrom in tokens + {baseToken}
+        // todo assert tokenTo in tokens + {baseToken}
+        IERC20(tokenFrom).safeIncreaseAllowance(address(swapper), amountFrom);
+        swapper.swap(tokenFrom, tokenTo, amountFrom, minAmountTo);
+    }
+
+    /*********** risky trading functions ***************/
+
+    function allowLpTokensForRiskyTrading(uint256 _lpTokenAmount) external {
+        UserInfo storage profile = userInfo[msg.sender];
+        require(_lpTokenAmount <= lpToken.balanceOf(msg.sender), "NOT _lpTokenAmount <= lpToken.balanceOf(msg.sender)");  // todo fix
+        require(_lpTokenAmount >= profile.lockedLp, "NOT _lpTokenAmount >= profile.lockedLp");
+        totalAllowedLp -= profile.riskyAllowedLp;
+        profile.riskyAllowedLp = _lpTokenAmount;
+        totalAllowedLp += _lpTokenAmount;
+    }
+
+    /* todo вывод locked LP
+        Vitalii Maistrenko BillTrade, [15.06.21 05:34]
+        если юзер хочет вывести свои средства с пула отправив Lp обратно в пул
+        берем пропорционально с свободных средств пула + пропорционально закрывает все позиции и что получилось отправляем юзеру
+        Vitalii Maistrenko BillTrade, [15.06.21 05:35]
+        + все расходы по закрытию в этот момент позиций оплачивает юзер что это все затеял
+        Vitalii Maistrenko BillTrade, [15.06.21 05:36]
+        просто выдавать средства с свободных не вариант так как трейдер оставляет их для усреднения а если мы их отдадим просто юзеру то просто подставим трейдера
+    */
+
+    function lpTokenPrice() public view returns(FractionLib.Fraction memory) {  //todo too naive implementation (no slippage)
+        uint256 totalBaseTokens = baseToken.balanceOf(address(this));
+        for(uint256 i=0; i < tokens.length(); i++) {
+            IERC20 token = IERC20(tokens.at(i));
+            uint256 balance = token.balanceOf(address(this));
+            if (balance == 0) {
+                continue;
+            }
+            FractionLib.Fraction memory price = swapper.priceOf(address(token), address(baseToken));
+            require(price.denominator > 0, "bad price");
+            uint256 baseTokens = balance * price.numerator / price.denominator;
+            totalBaseTokens += baseTokens;
+        }
+        return FractionLib.Fraction(totalBaseTokens, lpToken.totalSupply());
+    }
+
+    function buyRiskyToken(uint256 baseTokenAmount, uint256 minRiskyAmount) external onlyOwner returns(uint256) {
+        require(baseToken.balanceOf(address(this)) >= baseTokenAmount, "NOT baseToken.balanceOf(address(this)) >= baseTokenAmount");
+        FractionLib.Fraction memory currentLpPrice = lpTokenPrice();
+
+        // LpAmountEquivalent = base / price
+        uint256 tradeLpAmountEquivalent = baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator;
+        uint256 totalAvailableLp = totalAllowedLp - totalLockedLp;
+        require(totalAvailableLp >= tradeLpAmountEquivalent, "not enough available Lp");
+
+        // everything is oK, so we lock LP and do swap
+
+        // swap
+        baseToken.safeIncreaseAllowance(address(swapper), baseTokenAmount);
+        uint256 riskyAmount = swapper.swap(address(baseToken), address(riskyToken), baseTokenAmount, minRiskyAmount);
+
+        for(uint256 i=0; i<users.length(); ++i){
+            address user = users.at(i);
+            UserInfo storage profile = userInfo[user];
+            uint256 userAvailableLp = profile.riskyAllowedLp - profile.lockedLp;
+            uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;
+            require(shareLockLp <= userAvailableLp, "CRITICAL: shareLockLp is to high");  // this should not be possible! this means data inconsistency
+            profile.lockedLp += shareLockLp;
+            uint256 shareRiskyAmount = riskyAmount * userAvailableLp / totalAvailableLp;
+            profile.riskyTokenAmount += shareRiskyAmount;
+        }
+
+        // lock
+        totalLockedLp += tradeLpAmountEquivalent;
+    }
+
+    // по идее если происходит сжигание то должно происходить уменьшенеие allowance
+    // если минтятся новые то происходит увеличение
+
+    function sellRiskyToken(uint256 riskyTokenAmount, uint256 minBaseTokenAmount) external onlyOwner returns(uint256) {
+        require(riskyTokenAmount > 0, "NOT riskyTokenAmount > 0");
+        uint256 riskyBalanceBefore = riskyToken.balanceOf(address(this));
+        require(riskyBalanceBefore >= riskyTokenAmount, "NOT riskyToken.balanceOf(address(this)) >= riskyTokenAmount");
+
+        // swap
+        riskyToken.safeIncreaseAllowance(address(swapper), riskyTokenAmount);
+        uint256 baseTokenAmount = swapper.swap(
+                address(riskyToken), address(baseToken),
+                riskyTokenAmount, minBaseTokenAmount);
+
+        // вот мы получили результат в baseToken
+        // теперь нужно перевести его в lpToken
+        FractionLib.Fraction memory currentLpPrice = lpTokenPrice();
+        uint256 tradeLpAmountEquivalent = baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator;
+
+        // это как раз тот эквивалент который нужно теперь распределить по юзерам
+        // по идее конечно надо бы закрывать юзеров которые участвовали в первых сделках первыми
+        // потом тех кто вступил в риск сделки позже
+        // но это бы усложнило вычисления поэтому мы рассчитываем как бы общий результат
+
+        uint256 releventLockedLpAmount = totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
+
+        for(uint256 i=0; i<users.length(); ++i){
+            address user = users.at(i);
+            UserInfo storage profile = userInfo[user];
+            uint256 shareRiskyTradeAmount = riskyTokenAmount * profile.riskyTokenAmount / riskyBalanceBefore;
+            uint256 shareRelevantLp = releventLockedLpAmount * shareRiskyTradeAmount / riskyTokenAmount;
+            uint256 shareTradeLpEq = tradeLpAmountEquivalent * shareRiskyTradeAmount / riskyTokenAmount;
+            profile.lockedLp -= shareRelevantLp;
+            if (shareTradeLpEq >= shareRelevantLp) {
+                uint256 x = shareTradeLpEq - shareRelevantLp;
+                lpToken.mint(user, x);
+                profile.riskyAllowedLp += x;
+            } else {
+                uint256 x = shareRelevantLp - shareTradeLpEq;
+                lpToken.burnFrom(user, x);
+                profile.riskyAllowedLp -= x;
+            }
+        }
+
+        // unlock
+        totalLockedLp -= releventLockedLpAmount;
+    }
+}
