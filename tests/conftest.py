@@ -1,5 +1,5 @@
 import pytest
-from brownie import accounts, PoolWithRiskyTokenTradingNaive, PoolWithRiskyTokenTradingNaive, Token, SwapperMock
+from brownie import accounts, PoolWithRiskyTokenTradingNaive, PoolWithRiskyTokenTradingNaive, Token, SwapperMock, ERC20PresetMinterPauserOwnerBurnable
 
 
 def deploy_erc20(pm, accounts, name, users, swapper):
@@ -12,8 +12,7 @@ def deploy_erc20(pm, accounts, name, users, swapper):
 
 @pytest.fixture
 def lpToken(accounts, pm):
-    token = pm('OpenZeppelin/openzeppelin-contracts@4.1.0').\
-        ERC20PresetMinterPauser.deploy("lpToken", "lpToken", {'from': accounts[0]})
+    token = ERC20PresetMinterPauserOwnerBurnable.deploy("lpToken", "lpToken", {'from': accounts[0]})
     return token
 
 

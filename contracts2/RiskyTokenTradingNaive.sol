@@ -104,7 +104,7 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
     */
 
     struct UserInfo{
-        uint256 lpTokenAmount;  // сколько у юзера lp tokens
+//        uint256 lpTokenAmount;  // сколько у юзера lp tokens
         uint256 riskyAllowedLp;  // allowance дается в LP tokens  //todo вот тут короче я не уверен
         uint256 lockedLp;  // лочатся в ценах basePrice
         uint256 riskyTokenAmount;  // доля юзера в купленных risky
@@ -204,10 +204,9 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
     function allowLpTokensForRiskyTrading(uint256 _lpTokenAmount) external {
         UserInfo storage profile = userInfo[msg.sender];
         require(_lpTokenAmount <= lpToken.balanceOf(msg.sender), "NOT _lpTokenAmount <= lpToken.balanceOf(msg.sender)");  // todo fix
-        require(_lpTokenAmount >= profile.lockedLp, "NOT _lpTokenAmount >= profile.lockedLp");
-        totalAllowedLp -= profile.riskyAllowedLp;
+        require(_lpTokenAmount >= profile.lockedLp, "NOT _lpTokenAmount >= profile.lockedLp");  //todo: что если юзер аллоунс меньше то нужно вывести локнутые
+        totalAllowedLp = totalAllowedLp - profile.riskyAllowedLp + _lpTokenAmount;
         profile.riskyAllowedLp = _lpTokenAmount;
-        totalAllowedLp += _lpTokenAmount;
     }
 
     /* todo вывод locked LP
@@ -220,29 +219,40 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
         просто выдавать средства с свободных не вариант так как трейдер оставляет их для усреднения а если мы их отдадим просто юзеру то просто подставим трейдера
     */
 
+    // todo discuss how should it be (and if implements then how) in real life
     function lpTokenPrice() public view returns(FractionLib.Fraction memory) {  //todo too naive implementation (no slippage)
         uint256 totalBaseTokens = baseToken.balanceOf(address(this));
         for(uint256 i=0; i < tokens.length(); i++) {
             IERC20 token = IERC20(tokens.at(i));
-            uint256 balance = token.balanceOf(address(this));
-            if (balance == 0) {
+            uint256 poolTokenBalance = token.balanceOf(address(this));
+            if (poolTokenBalance == 0) {
                 continue;
             }
             FractionLib.Fraction memory price = swapper.priceOf(address(token), address(baseToken));
             require(price.denominator > 0, "bad price");
-            uint256 baseTokens = balance * price.numerator / price.denominator;
+            uint256 baseTokens = poolTokenBalance * price.numerator / price.denominator;
             totalBaseTokens += baseTokens;
         }
         return FractionLib.Fraction(totalBaseTokens, lpToken.totalSupply());
+    }
+
+    function getTotalAvailableLpForRiskyTrading() public view returns(uint256) {
+        return totalAllowedLp - totalLockedLp;
     }
 
     function buyRiskyToken(uint256 baseTokenAmount, uint256 minRiskyAmount) external onlyOwner returns(uint256) {
         require(baseToken.balanceOf(address(this)) >= baseTokenAmount, "NOT baseToken.balanceOf(address(this)) >= baseTokenAmount");
         FractionLib.Fraction memory currentLpPrice = lpTokenPrice();
 
-        // LpAmountEquivalent = base / price
-        uint256 tradeLpAmountEquivalent = baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator;
-        uint256 totalAvailableLp = totalAllowedLp - totalLockedLp;
+        // хотим залочить лп токены у юзеров
+        // tradeLpAmountEquivalent = base / price, сколько стоят эти baseTokenAmount в лпТокенах
+        // сколько лп токенов нужно было бы отдать чтобы купить riskyAmount
+        uint256 tradeLpAmountEquivalent = baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator;  //todo xxx
+        // 1000usd - 1laptop
+        // apples = 1000 / 10applePrice
+
+        // проверяем что достаточно еще не использованого allowance
+        uint256 totalAvailableLp = getTotalAvailableLpForRiskyTrading();
         require(totalAvailableLp >= tradeLpAmountEquivalent, "not enough available Lp");
 
         // everything is oK, so we lock LP and do swap
@@ -255,23 +265,38 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
             address user = users.at(i);
             UserInfo storage profile = userInfo[user];
             uint256 userAvailableLp = profile.riskyAllowedLp - profile.lockedLp;
-            uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;
+            uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;  // todo discuss dust
             require(shareLockLp <= userAvailableLp, "CRITICAL: shareLockLp is to high");  // this should not be possible! this means data inconsistency
             profile.lockedLp += shareLockLp;
+            // price is changing, user1 allow100 buy 100, then user2 allow 100 buy 200
+            // todo allowance is fixed
             uint256 shareRiskyAmount = riskyAmount * userAvailableLp / totalAvailableLp;
             profile.riskyTokenAmount += shareRiskyAmount;
         }
 
         // lock
         totalLockedLp += tradeLpAmountEquivalent;
+        return riskyAmount;
     }
 
-    // по идее если происходит сжигание то должно происходить уменьшенеие allowance
-    // если минтятся новые то происходит увеличение
+    // todo insuranceFund controlled by Gov collects the dust неучтенные токены
+
+    // по идее если происходит loss -> burn то должно происходить уменьшенеие allowance
+    // если минтятся lp новые то происходит увеличение allowance
+
+    event E0(string name);
+    event E1(string name, uint256 value);
+    event E2(string name1, uint256 value1, string name2, uint256 value2);
+    event E3(string name1, uint256 value1, string name2, uint256 value2, string name3, uint256 value3);
 
     function sellRiskyToken(uint256 riskyTokenAmount, uint256 minBaseTokenAmount) external onlyOwner returns(uint256) {
+        emit E0("call sellRiskyToken");
+        emit E1("riskyTokenAmount", riskyTokenAmount);
+        emit E1("minBaseTokenAmount", minBaseTokenAmount);
+        
         require(riskyTokenAmount > 0, "NOT riskyTokenAmount > 0");
         uint256 riskyBalanceBefore = riskyToken.balanceOf(address(this));
+        emit E1("riskyBalanceBefore", riskyBalanceBefore);
         require(riskyBalanceBefore >= riskyTokenAmount, "NOT riskyToken.balanceOf(address(this)) >= riskyTokenAmount");
 
         // swap
@@ -279,32 +304,68 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
         uint256 baseTokenAmount = swapper.swap(
                 address(riskyToken), address(baseToken),
                 riskyTokenAmount, minBaseTokenAmount);
+        emit E1("baseTokenAmount", baseTokenAmount);
 
         // вот мы получили результат в baseToken
         // теперь нужно перевести его в lpToken
-        FractionLib.Fraction memory currentLpPrice = lpTokenPrice();
+        FractionLib.Fraction memory currentLpPrice = lpTokenPrice();  // todo ошибка здесь потому что оценка без бейзТокенов
+        emit E1("currentLpPrice.denominator", currentLpPrice.denominator);
+        emit E1("currentLpPrice.numerator", currentLpPrice.numerator);
+
         uint256 tradeLpAmountEquivalent = baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator;
+        emit E1("tradeLpAmountEquivalent = baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator", tradeLpAmountEquivalent);
 
         // это как раз тот эквивалент который нужно теперь распределить по юзерам
         // по идее конечно надо бы закрывать юзеров которые участвовали в первых сделках первыми
         // потом тех кто вступил в риск сделки позже
         // но это бы усложнило вычисления поэтому мы рассчитываем как бы общий результат
 
+        // сколько было как бы залочено чтобы этот трейд стал возможен
+
         uint256 releventLockedLpAmount = totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
+        emit E1("totalLockedLp", totalLockedLp);
+        emit E1("riskyTokenAmount", riskyTokenAmount);
+        emit E1("riskyBalanceBefore", riskyBalanceBefore);
+        emit E1("releventLockedLpAmount = totalLockedLp * riskyTokenAmount / riskyBalanceBefore", releventLockedLpAmount);
 
         for(uint256 i=0; i<users.length(); ++i){
             address user = users.at(i);
             UserInfo storage profile = userInfo[user];
-            uint256 shareRiskyTradeAmount = riskyTokenAmount * profile.riskyTokenAmount / riskyBalanceBefore;
-            uint256 shareRelevantLp = releventLockedLpAmount * shareRiskyTradeAmount / riskyTokenAmount;
-            uint256 shareTradeLpEq = tradeLpAmountEquivalent * shareRiskyTradeAmount / riskyTokenAmount;
-            profile.lockedLp -= shareRelevantLp;
-            if (shareTradeLpEq >= shareRelevantLp) {
+            if (profile.riskyTokenAmount == 0) {
+                emit E2("user", i, "skip because riskyTokenAmount=", 0);
+                continue;
+            }
+//            uint256 shareRiskyTradeAmount = riskyTokenAmount * profile.riskyTokenAmount / riskyBalanceBefore;
+//            uint256 shareRelevantLp = releventLockedLpAmount * shareRiskyTradeAmount / riskyTokenAmount;
+//            uint256 shareTradeLpEq = tradeLpAmountEquivalent * shareRiskyTradeAmount / riskyTokenAmount;
+
+            //1
+            uint256 shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
+            emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
+            emit E2("user", i, "shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
+            uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
+            emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
+
+//            uint256 shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyTokenAmount;
+//            emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
+//            emit E2("user", i, "shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyTokenAmount", shareRelevantLp);
+//            uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyTokenAmount;
+//            emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyTokenAmount", shareTradeLpEq);
+
+            if (shareRelevantLp > profile.lockedLp) {
+                profile.lockedLp = 0;
+            } else {
+                profile.lockedLp -= shareRelevantLp;
+            }
+
+            if (shareTradeLpEq > shareRelevantLp) {
                 uint256 x = shareTradeLpEq - shareRelevantLp;
+                emit E2("user", i, "mint x", x);
                 lpToken.mint(user, x);
                 profile.riskyAllowedLp += x;
-            } else {
+            } else {  // shareTradeLpEq < shareRelevantLp
                 uint256 x = shareRelevantLp - shareTradeLpEq;
+                emit E2("user", i, "burn x", x);
                 lpToken.burnFrom(user, x);
                 profile.riskyAllowedLp -= x;
             }
@@ -312,5 +373,7 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
 
         // unlock
         totalLockedLp -= releventLockedLpAmount;
+        emit E1("totalLockedLp", totalLockedLp);
+        return baseTokenAmount;
     }
 }
