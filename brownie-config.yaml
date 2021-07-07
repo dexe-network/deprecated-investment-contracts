@@ -1,5 +1,5 @@
 project_structure:
-    contracts: contracts2
+    contracts: contracts
 
 compiler:
     solc:

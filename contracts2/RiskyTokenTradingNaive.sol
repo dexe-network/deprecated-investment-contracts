@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Unlicensed
 pragma solidity 0.8.4;
-
+//todo 0.6.0
 
 // пока непонятно, нужно ли включать эту логику в основной пулл
 // скорее всего эффективнее по газу будет включить все эти функции в WhiteListPool
@@ -115,22 +115,6 @@ contract PoolWithRiskyTokenTradingNaive is Ownable {  // todo extends
     EnumerableSet.AddressSet internal users;
 
     ISwapper public swapper;  // todo: uniswap
-
-    /*
-    при этом трейдер может динамически менять количество купленных Х токенов?
-    тогда придется держать массив в сторадже trades
-    и когда пользователь хочет снять свой выйгрышь итерироваться по нему чтобы понять сколько он выйграл или проиграл
-    с учетом его доли в трейдингеХ и с учетом количества купленных/проданных Х в каждом трейде
-    see explanations in _recalculateUserDeposit
-    */
-    struct Trade {
-        bool isBuyRiskyToken;  // true=buy, false=sell
-        uint256 poolLpTokenAmountBeforeTrade;  // нужно для оценки доли юзера с его Lp токенами в этом трейде
-          // todo возможно нужно использовать BaseTokens
-        uint256 poolRiskyTokenAmountBeforeTrade;
-        uint256 tradeLpTokenAmount;
-        uint256 tradeRiskyTokenAmount;
-    }
 
     constructor(address _baseToken, address _lpToken, address _riskyToken, address _swapper){
 //        lpToken = new ERC20PresetMinterPauser("LpToken", "LP");  //todo uncomment
