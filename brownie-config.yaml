@@ -8,8 +8,11 @@ compiler:
             enabled: false
 #            runs: 200
         remappings:
-            - "@openzeppelin=/home/v/.brownie/packages/OpenZeppelin/openzeppelin-contracts@4.1.0"
+            - "@openzeppelin/contracts-upgradeable=OpenZeppelin/openzeppelin-contracts-upgradeable@4.1.0/contracts"
+            - "@openzeppelin=OpenZeppelin/openzeppelin-contracts@4.1.0"
+            - "@openzeppelin-upgradeable=OpenZeppelin/openzeppelin-contracts-upgradeable@4.1.0"
 
 dependencies:
     - brownie-mix/token-mix@1.0.0
     - OpenZeppelin/openzeppelin-contracts@4.1.0
+    - OpenZeppelin/openzeppelin-contracts-upgradeable@4.1.0

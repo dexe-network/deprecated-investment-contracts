@@ -3,7 +3,7 @@
 pragma solidity >=0.6.0 <0.8.0;
 
 import "./IBeacon.sol";
-import "./utils/Ownable.sol";
+import "../access/Ownable.sol";
 import "../utils/Address.sol";
 
 /**
