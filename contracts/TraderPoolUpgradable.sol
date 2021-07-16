@@ -1,8 +1,11 @@
-pragma solidity 0.6.6;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity 0.6.8;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import {EnumerableSet} from '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
+import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+//import '@openzeppelin@4.1.0/contracts/utils/structs/EnumerableSet.sol';
+import '@openzeppelin/contracts/utils/EnumerableSet.sol';
 
 import "./pool/PoolUpgradeable.sol";
 import "./interfaces/ITraderPoolInitializable.sol";
@@ -24,9 +27,11 @@ contract TraderPoolUpgradeable
 
     //ACL
     //Manager is the person allowed to manage funds
-    bytes32 public constant TRADER_ROLE = keccak256("TRADER_ROLE");
+    address public trader;
     bool public isActualOn;
     bool public isInvestorsWhitelistEnabled;
+
+    IPoolLiquidityToken public lpToken;
 
     address public traderCommissionAddress;
     address public dexeCommissionAddress;
@@ -48,14 +53,24 @@ contract TraderPoolUpgradeable
     //trader investor address whitelist
     mapping (address => bool) public investorWhitelist;
 
+    EnumerableSet.AddressSet internal users;
+
+    // todo remove
+    event E0(string name);
+    event E1(string name, uint256 value);
+    event E2(string name1, uint256 value1, string name2, uint256 value2);
+    event E3(string name1, uint256 value1, string name2, uint256 value2, string name3, uint256 value3);
+
     //positions
-    mapping(address => uint256) pAmtOpened;  //amount of basicTokens spent for opening position (i.e. position opening cost)
-    mapping(address => uint256) pAssetAmt; //amount of assets locked in the open position  //todo
+    mapping(address => uint256) pAmtOpenedInBasic;  //amount of basicTokens spent for opening position (i.e. position opening cost)
+    mapping(address => uint256) pAssetAmt; //amount of assets locked in the open position  //todo balanceOf
     address[] public assetTokenAddresses; //address of the asset ERC20 token
 
     event Exchanged(address fromAsset, address toAsset, uint256 fromAmt, uint256 toAmt);
     event Profit(uint256 amount);
     event Loss(uint256 amount);
+    event RiskyTradingProposalCreated(address indexed creator, address indexed riskyToken);
+    event RiskyTradingAllowanceSet(address indexed creator, address indexed riskyToken, uint256 amount);
 
     /**
     * returns version of the contract
@@ -74,84 +89,98 @@ contract TraderPoolUpgradeable
         bool enabled;  // todo how to use that?
         mapping(address => RiskSubPoolUserInfo) userInfo;
         uint256 totalLockedLp;
-        uint256 totalAllowedLp;
-        EnumerableSet.AddressSet internal users;
+        uint256 totalAvailableLp;  // лп которые реально есть на счетах
+        uint256 totalAllowedLp;    //todo еще одно немасштабируемое место
+        EnumerableSet.AddressSet users;
     }
     mapping(address => RiskSubPool) internal _riskSubPools;
 
-    modifier onlyWitelistOrBasicToken(address token) {
-        require(paramkeeper.isWhitelisted(toAsset) || traderWhitelist[toAsset] || toAsset == address(basicToken),"Position toToken address to be whitelisted");
+    modifier onlyWhitelistOrBasicToken(address token) {
+        require((
+                paramkeeper.isWhitelisted(token) ||
+                traderWhitelist[token] ||
+                token == address(basicToken)
+            ),
+            "token must be whitelisted or basicToken");
         _;
     }
 
-    modifier onlyNotWitelistOrBasicToken(address token) {
-        require(
-            (!paramkeeper.isWhitelisted(toAsset)) &&
-            (!traderWhitelist[toAsset]) &&
-            (toAsset != address(basicToken),
-            "Position toToken address to be whitelisted");
+    modifier onlyNotWhitelistOrBasicToken(address token) {
+        require((
+                (!paramkeeper.isWhitelisted(token)) &&
+                (!traderWhitelist[token]) &&  //todo зачем это?
+                (token != address(basicToken))
+            ),
+            "address must be not in whitelist and not basicToken");
         _;
     }
 
-    modifier onlyEnabledSubPool(address token) {
+    modifier onlyEnabledRiskSubPool(address token) {
         require(_riskSubPools[token].enabled, "subPool must be enabled");
         _;
     }
 
-    modifier onlyDisabledSubPool(address token) {
+    modifier onlyDisabledRiskSubPool(address token) {
         require(!_riskSubPools[token].enabled, "subPool must be disabled");
         _;
     }
 
     /// @dev require not in whiteList  (1. transfer allowance 100% always)
-    function createProposal(address riskyToken) external onlyTrader onlyNotWitelistOrBasicToken(riskyToken) onlyDisabledSubPool(riskyToken) {
-        RiskSubPoolUserInfo storage subPool = _riskSubPools[riskyToken];
+    function createProposal(address riskyToken) external onlyTrader onlyNotWhitelistOrBasicToken(riskyToken) onlyDisabledRiskSubPool(riskyToken) {
+        RiskSubPool storage subPool = _riskSubPools[riskyToken];
         subPool.enabled = true;
-        // todo discuss maybe we should have the different logic for trader
-        subPool.totalAllowedLp = traderLiquidityBalance;
-        subPool
+        subPool.userInfo[msg.sender].riskyAllowedLp = type(uint256).max;
+        emit RiskyTradingProposalCreated(msg.sender, riskyToken);
+        emit RiskyTradingAllowanceSet(msg.sender, riskyToken, type(uint256).max);
     }
 
-    /// @dev todo burn
-    function claimLockedLp(address riskyToken, uint256 lpTokenAmount, uint256 minOutBaseAmount) {
-        RiskSubPoolUserInfo storage subPool = _riskSubPools[riskyToken];
-        RiskSubPoolUserInfo storage profile = subPool.userInfo[msg.sender];
-        require(lpTokenAmount <= lpToken.balanceOf(msg.sender), "NOT lpTokenAmount <= lpToken.balanceOf(msg.sender)");  // todo fix
-        require(lpTokenAmount <= profile.lockedLp, "NOT lpTokenAmount <= profile.lockedLp");
-        subPool.totalAllowedLp = subPool.totalAllowedLp - lpTokenAmount;
-        profile.riskyAllowedLp -= lpTokenAmount;
-        // perform exchange risky -> base
-        {
-            uint256 fromAssetBalanceBefore = IERC20Upgradeable(fromAsset).balanceOf(address(this));
-            uint256 toAssetBalanceBefore = IERC20Upgradeable(toAsset).balanceOf(address(this));
+//    /// @dev todo burn
+//    function claimLockedLp(address riskyToken, uint256 lpTokenAmount, uint256 minOutBaseAmount) {
+//        RiskSubPoolUserInfo storage subPool = _riskSubPools[riskyToken];
+//        RiskSubPoolUserInfo storage profile = subPool.userInfo[msg.sender];
+//        require(lpTokenAmount <= lpToken.balanceOf(msg.sender), "NOT lpTokenAmount <= lpToken.balanceOf(msg.sender)");  // todo fix
+//        require(lpTokenAmount <= profile.lockedLp, "NOT lpTokenAmount <= profile.lockedLp");
+//        subPool.totalAllowedLp = subPool.totalAllowedLp - lpTokenAmount;
+//        profile.riskyAllowedLp -= lpTokenAmount;
+//        // perform exchange risky -> base
+//        {
+//            uint256 fromAssetBalanceBefore = IERC20Upgradeable(fromAsset).balanceOf(address(this));
+//            uint256 toAssetBalanceBefore = IERC20Upgradeable(toAsset).balanceOf(address(this));
+//
+//            // todo discuss
+//            IERC20Token(fromAsset).safeTransfer(msg.sender, fromAmt);
+//            require(IAssetExchangeManager(msg.sender).execute(_calldata), "Asset exchange manager execution failed");
+//            fromSpent = fromAssetBalanceBefore.sub(IERC20Upgradeable(fromAsset).balanceOf(address(this)));
+//            toGained = IERC20Upgradeable(toAsset).balanceOf(address(this)).sub(toAssetBalanceBefore);
+//
+//            emit Exchanged (fromAsset, toAsset, fromSpent, toGained);  // todo event type
+//            IERC20(basicToken).safeTransfer(msg.sender, toGained);
+//        }
+//    }
 
-            // todo discuss
-            IERC20Token(fromAsset).safeTransfer(msg.sender, fromAmt);
-            require(IAssetExchangeManager(msg.sender).execute(_calldata), "Asset exchange manager execution failed");
-            fromSpent = fromAssetBalanceBefore.sub(IERC20Upgradeable(fromAsset).balanceOf(address(this)));
-            toGained = IERC20Upgradeable(toAsset).balanceOf(address(this)).sub(toAssetBalanceBefore);
-
-            emit Exchanged (fromAsset, toAsset, fromSpent, toGained);  // todo event type
-            IERC20(basicToken).safeTransfer(msg.sender, toGained);
-        }
-
-
-    }
-    function setAllowanceForProposal(address riskyToken, uint256 lpTokenAmount) external onlyEnabledSubPool(riskyToken) {
-        RiskSubPoolUserInfo storage subPool = _riskSubPools[riskyToken];
-        RiskSubPoolUserInfo storage profile = subPool.userInfo[msg.sender];
+    function setAllowanceForProposal(address riskyToken, uint256 lpTokenAmount) external onlyEnabledRiskSubPool(riskyToken) {
+        RiskSubPool storage riskySubPool = _riskSubPools[riskyToken];
+        RiskSubPoolUserInfo storage profile = riskySubPool.userInfo[msg.sender];
         require(lpTokenAmount <= lpToken.balanceOf(msg.sender), "NOT lpTokenAmount <= lpToken.balanceOf(msg.sender)");  // todo fix
         require(lpTokenAmount >= profile.lockedLp, "NOT lpTokenAmount >= profile.lockedLp");  // все правильно! юзер не должен иметь возможности
-        subPool.totalAllowedLp = subPool.totalAllowedLp - profile.riskyAllowedLp + lpTokenAmount;
+        riskySubPool.totalAllowedLp = riskySubPool.totalAllowedLp - profile.riskyAllowedLp + lpTokenAmount;
         profile.riskyAllowedLp = lpTokenAmount;
         //todo trader should not be able to do it
     }
 
-    function moveRiskTokenToWhiteList(address riskyToken) onlyTrader onlyWhiteList onlyEnabledRiskSubPool {
-        // todo just move to white pool and unlock lp
+    modifier onlyWhiteList(address token) {
+        require(
+            paramkeeper.isWhitelisted(token) || traderWhitelist[token] || token == address(basicToken),
+            "ONLY_WHITE_LIST"
+        );
+        _;
+    }
 
+    function moveRiskTokenToWhiteList(address token) external onlyTrader onlyWhiteList(token) onlyEnabledRiskSubPool(token) {
+        revert("not implemented yet");
+        // todo just move to white pool and unlock lp
         // todo move tokens to main pool.
-        delete _riskSubPools[riskyToken];
+        delete _riskSubPools[token];
     }
 
     
@@ -184,7 +213,7 @@ contract TraderPoolUpgradeable
 
         //access control initial setup
         _setupRole(DEFAULT_ADMIN_ROLE, iaddr[0]);
-        _setupRole(TRADER_ROLE, iaddr[1]);
+        trader = iaddr[1];
 
         //safe mode "on" with commissions
         traderCommissionAddress = iaddr[1];
@@ -216,7 +245,7 @@ contract TraderPoolUpgradeable
     * @dev Throws if called by any account other than the one with the Trader role granted.
     */
     modifier onlyTrader() {
-        require(hasRole(TRADER_ROLE, msg.sender), "Caller is not the Trader");
+        require(trader == msg.sender, "Caller is not the Trader");
         _;
     }
 
@@ -276,65 +305,72 @@ contract TraderPoolUpgradeable
         require (fromAsset != toAsset, "incorrect asset params");
         require (fromAsset != address(0), "incorrect fromAsset param");
         require (toAsset != address(0), "incorrect toAsset param");
-        require(hasRole(TRADER_ROLE, caller), "Caller is not the Trader");
-        //1. check assetFrom price, multiply by amount, check resulting amount less then Leverage allowed. 
+
+        // todo discuss
+        //        require(hasRole(TRADER_ROLE, caller), "Caller is not the Trader");
+        require(trader == msg.sender, "NOT_TRADER");
+
+        //1. check assetFrom price, multiply by amount, check resulting amount less then Leverage allowed.
         {  //todo risk
             require(paramkeeper.isWhitelisted(toAsset) || traderWhitelist[toAsset] || toAsset == address(basicToken),"Position toToken address to be whitelisted");
             uint256 maxAmount = this.getMaxPositionOpenAmount();  //todo max amount of this token available for trader
             uint256 spendingAmount;
             if(fromAsset == address(basicToken)) {
                 spendingAmount = fromAmt;
-            } else {  // todo logic to limit amount of risk trade
-                spendingAmount = pAmtOpened[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
+            } else {
+                spendingAmount = pAmtOpenedInBasic[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
             }
             require(spendingAmount <= maxAmount, "Amount reached maximum available");
         }
 
-        if (fromAsset == address(basicToken) && _riskSubPools[toAsset].enabled) {  // buy risky token
-
-            // todo discuss how to handle it for risky trading
-            uint256 maxAmount = this.getMaxPositionOpenAmount();  //todo max amount of this token available for trader
-            uint256 spendingAmount;
-            if(fromAsset == address(basicToken)) {
-                spendingAmount = fromAmt;
-            } else {  // todo logic to limit amount of risk trade
-                spendingAmount = pAmtOpened[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
-            }
-            require(spendingAmount <= maxAmount, "Amount reached maximum available");
-
-            RiskSubPool storage subPool = _riskySubPool[toAsset];
-
-            //todo: check that it has enough allowance
-            FractionLib.Fraction memory currentLpPrice = lpTokenPrice();  //todo how to get
-            uint256 tradeLpAmountEquivalent = fromAmt * currentLpPrice.denominator / currentLpPrice.numerator;  //todo xxx
-            uint256 totalAvailableLp = subPool.totalAllowedLp - subPool.totalLockedLp;
-            require(totalAvailableLp >= tradeLpAmountEquivalent, "not enough available Lp");
-
-            for(uint256 i=0; i<subPool.users.length(); ++i){
-                address user = subPool.users.at(i);
-                UserInfo storage profile = subPool.userInfo[user];
-                uint256 userAvailableLp = profile.riskyAllowedLp - profile.lockedLp;
-                uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;  // todo discuss dust
-                require(shareLockLp <= userAvailableLp, "CRITICAL: shareLockLp is to high");  // this should not be possible! this means data inconsistency
-                profile.lockedLp += shareLockLp;
-                // price is changing, user1 allow100 buy 100, then user2 allow 100 buy 200
-                // todo allowance is fixed
-                uint256 shareRiskyAmount = riskyAmount * userAvailableLp / totalAvailableLp;
-                profile.riskyTokenAmount += shareRiskyAmount;
-            }
-
-        } else if (toAsset == address(basicToken) && _riskSubPools[fromAsset].enabled) {  // sell risky token
-            // todo discuss how to handle it for risky trading
-            uint256 maxAmount = this.getMaxPositionOpenAmount();  //todo max amount of this token available for trader
-            uint256 spendingAmount;
-            if(fromAsset == address(basicToken)) {
-                spendingAmount = fromAmt;
-            } else {  // todo logic to limit amount of risk trade
-                spendingAmount = pAmtOpened[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
-            }
-            require(spendingAmount <= maxAmount, "Amount reached maximum available");
-
-        }
+//        if (fromAsset == address(basicToken) && _riskSubPools[toAsset].enabled) {  // buy risky token
+//
+//            // todo discuss how to handle it for risky trading
+//            uint256 maxAmount = this.getMaxPositionOpenAmount();  //todo max amount of this token available for trader
+//            uint256 spendingAmount;
+//            if(fromAsset == address(basicToken)) {
+//                spendingAmount = fromAmt;
+//            } else {  // todo logic to limit amount of risk trade
+//                spendingAmount = pAmtOpenedInBasic[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
+//            }
+//            require(spendingAmount <= maxAmount, "Amount reached maximum available");
+//
+//            RiskSubPool storage subPool = _riskySubPools[toAsset];
+//
+//            //todo: check that it has enough allowance
+//
+////            FractionLib.Fraction memory currentLpPrice = lpTokenPrice();  //todo how to get
+//            FractionLib.Fraction memory currentLpPrice = FractionLib.Fraction(1,1);  //todo how to get //xx
+//
+//            uint256 tradeLpAmountEquivalent = fromAmt * currentLpPrice.denominator / currentLpPrice.numerator;  //todo xxx
+//            uint256 totalAvailableLp = subPool.totalAllowedLp - subPool.totalLockedLp;
+//            require(totalAvailableLp >= tradeLpAmountEquivalent, "not enough available Lp");
+//
+//            for(uint256 i=0; i<subPool.users.length(); ++i){
+//                address user = subPool.users.at(i);
+//                RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
+//                uint256 userAvailableLp = profile.riskyAllowedLp - profile.lockedLp;
+//                uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;  // todo discuss dust
+//                require(shareLockLp <= userAvailableLp, "CRITICAL: shareLockLp is to high");  // this should not be possible! this means data inconsistency
+//                profile.lockedLp += shareLockLp;
+//                // price is changing, user1 allow100 buy 100, then user2 allow 100 buy 200
+//                // todo allowance is fixed
+//                uint256 shareRiskyAmount = riskyAmount * userAvailableLp / totalAvailableLp;
+//                profile.riskyTokenAmount += shareRiskyAmount;
+//            }
+//
+//        } else if (toAsset == address(basicToken) && _riskSubPools[fromAsset].enabled) {  // sell risky token
+//            // todo discuss how to handle it for risky trading
+//            uint256 maxAmount = this.getMaxPositionOpenAmount();  //todo max amount of this token available for trader
+//            uint256 spendingAmount;
+//            if(fromAsset == address(basicToken)) {
+//                spendingAmount = fromAmt;
+//            } else {  // todo logic to limit amount of risk trade
+//                spendingAmount = pAmtOpenedInBasic[fromAsset].mul(fromAmt).div(pAssetAmt[fromAsset]);
+//            }
+//            require(spendingAmount <= maxAmount, "Amount reached maximum available");
+//
+//        }
 
         uint256 fromSpent;
         uint256 toGained; 
@@ -353,38 +389,37 @@ contract TraderPoolUpgradeable
         //3. record positions changes & distribute profit
         if(fromAsset == address(basicToken)) {  // buy
             //open new position
-            if(pAmtOpened[toAsset] == 0){
+            if(pAmtOpenedInBasic[toAsset] == 0){
                 assetTokenAddresses.push(toAsset);
             }
-            pAmtOpened[toAsset] = pAmtOpened[toAsset].add(fromSpent);
+            pAmtOpenedInBasic[toAsset] = pAmtOpenedInBasic[toAsset].add(fromSpent);
             pAssetAmt[toAsset] = pAssetAmt[toAsset].add(toGained);
 
-            if (fromAsset == address(basicToken) && _riskSubPools[toAsset].enabled) {  // buy risky token
-                RiskSubPool storage subPool = _riskySubPool[toAsset];
-                for(uint256 i=0; i<subPool.users.length(); ++i){
-                    address user = subPool.users.at(i);
-                    UserInfo storage profile = subPool.userInfo[user];
-                    uint256 userAvailableLp = profile.riskyAllowedLp - profile.lockedLp;
-                    uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;  // todo discuss dust
-                    require(shareLockLp <= userAvailableLp, "CRITICAL: shareLockLp is to high");  // this should not be possible! this means data inconsistency
-                    profile.lockedLp += shareLockLp;
-                    // price is changing, user1 allow100 buy 100, then user2 allow 100 buy 200
-                    // todo allowance is fixed
-                    uint256 shareRiskyAmount = riskyAmount * userAvailableLp / totalAvailableLp;
-                    profile.riskyTokenAmount += shareRiskyAmount;
-                }
-
-            }
+//            if (fromAsset == address(basicToken) && _riskSubPools[toAsset].enabled) {  // buy risky token
+//                RiskSubPool storage subPool = _riskySubPools[toAsset];
+//                for(uint256 i=0; i<subPool.users.length(); ++i){
+//                    address user = subPool.users.at(i);
+//                    RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
+//                    uint256 userAvailableLp = profile.riskyAllowedLp - profile.lockedLp;
+//                    uint256 shareLockLp = tradeLpAmountEquivalent * userAvailableLp / totalAvailableLp;  // todo discuss dust
+//                    require(shareLockLp <= userAvailableLp, "CRITICAL: shareLockLp is to high");  // this should not be possible! this means data inconsistency
+//                    profile.lockedLp += shareLockLp;
+//                    // price is changing, user1 allow100 buy 100, then user2 allow 100 buy 200
+//                    // todo allowance is fixed
+//                    uint256 shareRiskyAmount = riskyAmount * userAvailableLp / totalAvailableLp;
+//                    profile.riskyTokenAmount += shareRiskyAmount;
+//                }
+//            }
         } else if(toAsset == address(basicToken)){  // sell token
-            uint256 pFromAmtOpened = pAmtOpened[fromAsset];
+            uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
             uint256 pFromLiq = pAssetAmt[fromAsset];
 
             pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
             uint256 originalSpentValue = pFromAmtOpened.mul(fromSpent).div(pFromLiq);
-            pAmtOpened[fromAsset] = pAmtOpened[fromAsset].sub(originalSpentValue);
+            pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].sub(originalSpentValue);
 
             //remove closed position
-            if(pAmtOpened[fromAsset] == 0){
+            if(pAmtOpenedInBasic[fromAsset] == 0){
                 _deletePosition(fromAsset);
             }
 
@@ -418,53 +453,53 @@ contract TraderPoolUpgradeable
             }
             availableCap = availableCap.add(finResB.sub(operationTraderCommission));
 
-            // it's interesting to note that for different users profit/loss could be different
-            for(uint256 i=0; i<users.length(); ++i){
-                address user = users.at(i);
-                UserInfo storage profile = userInfo[user];
-                if (profile.riskyTokenAmount == 0) {
-                    emit E2("user", i, "skip because riskyTokenAmount=", 0);
-                    continue;
-                }
-                uint256 shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
-                emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
-                emit E2("user", i, "shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
-                uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
-                emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
-                if (shareRelevantLp > profile.lockedLp) {
-                    profile.lockedLp = 0;
-                } else {
-                    profile.lockedLp -= shareRelevantLp;
-                }
-
-                if (shareTradeLpEq > shareRelevantLp) {
-                    uint256 x = shareTradeLpEq - shareRelevantLp;
-                    emit E2("user", i, "mint x", x);
-                    lpToken.mint(user, x);
-                    profile.riskyAllowedLp += x;
-                }
-            }
+//            // it's interesting to note that for different users profit/loss could be different
+//            for(uint256 i=0; i<users.length(); ++i){
+//                address user = users.at(i);
+//                RiskSubPoolUserInfo storage profile = userInfo[user];
+//                if (profile.riskyTokenAmount == 0) {
+//                    emit E2("user", i, "skip because riskyTokenAmount=", 0);
+//                    continue;
+//                }
+//                uint256 shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
+//                emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
+//                emit E2("user", i, "shareRelevantLp = releventLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
+//                uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
+//                emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
+//                if (shareRelevantLp > profile.lockedLp) {
+//                    profile.lockedLp = 0;
+//                } else {
+//                    profile.lockedLp -= shareRelevantLp;
+//                }
+//
+//                if (shareTradeLpEq > shareRelevantLp) {
+//                    uint256 x = shareTradeLpEq - shareRelevantLp;
+//                    emit E2("user", i, "mint x", x);
+//                    lpToken.mint(user, x);
+//                    profile.riskyAllowedLp += x;
+//                }
+//            }
 
 
         } else {
-            // uint256 pFromAmtOpened = pAmtOpened[fromAsset];
+            // uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
             uint256 pFromLiq = pAssetAmt[fromAsset];
-            // uint256 pToAmtOpened = pAmtOpened[toAsset];
+            // uint256 pToAmtOpened = pAmtOpenedInBasic[toAsset];
             uint256 pToLiq = pAssetAmt[toAsset];
 
                 //open new position
-            if(pAmtOpened[toAsset] == 0){
+            if(pAmtOpenedInBasic[toAsset] == 0){
                 assetTokenAddresses.push(toAsset);
             } 
 
-            pAmtOpened[fromAsset] = pAmtOpened[fromAsset].mul(pFromLiq.sub(fromSpent)).div(pFromLiq);
+            pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].mul(pFromLiq.sub(fromSpent)).div(pFromLiq);
             pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
 
-            pAmtOpened[toAsset] = pAmtOpened[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpened[toAsset]); 
+            pAmtOpenedInBasic[toAsset] = pAmtOpenedInBasic[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpenedInBasic[toAsset]); 
             pAssetAmt[toAsset] = pToLiq.add(toGained);
 
             //remove closed position
-            if(pAmtOpened[fromAsset] == 0){
+            if(pAmtOpenedInBasic[fromAsset] == 0){
                 _deletePosition(fromAsset);
             }        
         }
@@ -503,7 +538,7 @@ contract TraderPoolUpgradeable
     function positionAt(uint16 _index) external view returns (uint256,uint256,address) {
         require(_index < assetTokenAddresses.length);
         address asset = assetTokenAddresses[_index];
-        return (pAmtOpened[asset], pAssetAmt[asset], asset);
+        return (pAmtOpenedInBasic[asset], pAssetAmt[asset], asset);
     }
 
     /**
@@ -513,9 +548,11 @@ contract TraderPoolUpgradeable
     *    3) token - the address of ERC20 token that position was opened to 
     * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
     */
-    function positionFor(address asset) external view returns (uint256,uint256,address) {
-        return (pAmtOpened[asset], pAssetAmt[asset], asset);
+    function positionFor(address asset) external view returns (uint256,uint256,address) { //todo remove code duplication
+        return (pAmtOpenedInBasic[asset], pAssetAmt[asset], asset);
     }
+
+    //todo priceofLp = SUM(positionFor(asset)[0] for asset in ...) slippage??
 
     /**
     * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
@@ -687,14 +724,14 @@ contract TraderPoolUpgradeable
         if(isActualOn && assetTokenAddresses.length > 0){
             uint256 totalOpened=0;
             for(uint i=0;i<assetTokenAddresses.length;i++){
-                totalOpened = totalOpened.add(pAmtOpened[assetTokenAddresses[i]]);
+                totalOpened = totalOpened.add(pAmtOpenedInBasic[assetTokenAddresses[i]]);
             }
             //fund
             uint256 amoutTokenLeft = amountTokenSent;
             // uint256 deadline = block.timestamp + 5*60;
             // uint256 liquidity;
             for(uint16 i=0;i<assetTokenAddresses.length;i++){
-                uint256 fundPositionAmt = amountTokenSent.mul(pAmtOpened[assetTokenAddresses[i]]).div(totalOpened);
+                uint256 fundPositionAmt = amountTokenSent.mul(pAmtOpenedInBasic[assetTokenAddresses[i]]).div(totalOpened);
                 if(fundPositionAmt < amoutTokenLeft)//underflow with division
                     fundPositionAmt = amoutTokenLeft;
                 
@@ -710,7 +747,7 @@ contract TraderPoolUpgradeable
                     toGained = IERC20Upgradeable(assetTokenAddresses[i]).balanceOf(address(this)).sub(toAssetBalanceBefore);
                 }
                 emit Exchanged (address(basicToken), assetTokenAddresses[i], fromSpent, toGained);
-                pAmtOpened[assetTokenAddresses[i]] = pAmtOpened[assetTokenAddresses[i]].add(fromSpent);
+                pAmtOpenedInBasic[assetTokenAddresses[i]] = pAmtOpenedInBasic[assetTokenAddresses[i]].add(fromSpent);
                 pAssetAmt[assetTokenAddresses[i]] = pAssetAmt[assetTokenAddresses[i]].add(toGained);
                 //
                 amoutTokenLeft = amoutTokenLeft.sub(fromSpent);
@@ -773,7 +810,7 @@ contract TraderPoolUpgradeable
         for(uint256 i=0;i<assetTokenAddresses.length;i++){
             uint256 positionValuation = paramkeeper.getAssetValuationManager().getAssetValuation(address(basicToken),assetTokenAddresses[i],pAssetAmt[assetTokenAddresses[i]]);
             if(positionValuation == 0)
-                positionValuation = pAmtOpened[assetTokenAddresses[i]];
+                positionValuation = pAmtOpenedInBasic[assetTokenAddresses[i]];
             totalPositionsCap = totalPositionsCap.add(positionValuation);
         }
         return totalPositionsCap;
