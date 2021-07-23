@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "truffle console --network",
+    "bsc-test": "truffle test --network bsc_test",
     "build": "truffle compile",
     "test": "truffle test --network test",
     "full-test": "concurrently --kill-others \"npm run ganache\" \"npm run test\"",

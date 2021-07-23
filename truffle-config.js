@@ -1,7 +1,8 @@
 "use strict";
-const ApiKey = process.env.INFURA_API_KEY || require('./network_keys/api/infura');
-const { infuraApiKey, mnemonic } = require('./network_keys/secrets.json');
+// const ApiKey = process.env.INFURA_API_KEY || require('./network_keys/api/infura');
+// const { infuraApiKey, mnemonic } = require('./network_keys/secrets.json');
 const HDWalletProvider = require("@truffle/hdwallet-provider");
+const infuraApiKey = "";
 
 const Infura = {
   Mainnet: "https://mainnet.infura.io/v3/" + infuraApiKey,
@@ -15,6 +16,15 @@ const Infura = {
 
 module.exports = {
   networks: {
+    bsc_test: {
+      host: "127.0.0.1",
+      port: 8545,
+      // network_id: 55, // 5777 Match Ganache(Truffle) network id
+      network_id: 56, //Match Ganache(Truffle) network id
+      // provider: () => new HDWalletProvider(mnemonic, Infura.BSC),
+      //provider: () => new Provider('88197d4cac39375094dab1cfd7e302a0874a342ed6a1a965a8d8e4e381327eb1', 'http://127.0.0.1:8545'),
+      gas: 15000000,
+    },
     test: {
       host: "127.0.0.1",
       port: 8545,
