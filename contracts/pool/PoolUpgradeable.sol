@@ -1,4 +1,5 @@
-pragma solidity 0.6.6;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.6.6;
 
 import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -8,6 +9,8 @@ import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 import "../interfaces/IERC20Token.sol";
 import "../interfaces/IPoolLiquidityToken.sol";
 import "../math/ABDKMath64x64.sol";
+import "../FractionLib.sol";
+
 
 
 interface IWETH {
@@ -23,7 +26,7 @@ abstract contract PoolUpgradeable is Initializable{
     using ABDKMath64x64 for int128;
 
     address private wETH;
-    address public plt;
+    address public plt;  //todo xxx lp token
     uint256 public availableCap;
     IERC20Token public basicToken;
 
