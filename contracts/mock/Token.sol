@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.6.0;
 // https://raw.githubusercontent.com/brownie-mix/token-mix/master/contracts/Token.sol
 
 import "../math/SafeMath.sol";

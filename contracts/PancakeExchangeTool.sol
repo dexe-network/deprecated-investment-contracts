@@ -1,6 +1,6 @@
 
 
-pragma solidity 0.6.6;
+pragma solidity 0.6.8;
 
 import "./math/SafeMath.sol";
 import "./token/ERC20/IERC20.sol";
