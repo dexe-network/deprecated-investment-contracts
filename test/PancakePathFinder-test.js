@@ -40,7 +40,7 @@ contract('PancakePathFinder', (accounts) => {
     const usdtTokenAddress = '0x55d398326f99059fF775485246999027B3197955';
     const wbnbAddress = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
     const busdAddress ='0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56';
-    
+
     let mainAccount = accounts[0];
 
     let pathFinder;
@@ -52,11 +52,11 @@ contract('PancakePathFinder', (accounts) => {
 
         await pathFinder.initialize.sendTransaction();
 
-        
+
     });
 
     it('negative find direct path', async () => {
-    
+
         let fromToken = uniswapFactoryAddress;
         let toToken = usdtTokenAddress;
         let amount = toBN(10).mul(decimals);
@@ -70,7 +70,7 @@ contract('PancakePathFinder', (accounts) => {
     });
 
     it('should find direct path', async () => {
-    
+
         let fromToken = wbnbAddress;
         let toToken = busdAddress;
         let amount = toBN(10).mul(decimals);
@@ -90,7 +90,7 @@ contract('PancakePathFinder', (accounts) => {
         const usdtToken = usdtTokenAddress;
         const usdcToken = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
         const wbtcToken = '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c';
-        let fromToken = cakeToken; 
+        let fromToken = cakeToken;
         let toToken = linkToken;
         let amount = toBN(1000).mul(decimals);
         let result = await pathFinder.evaluate.call(fromToken,toToken,amount);
@@ -103,26 +103,26 @@ contract('PancakePathFinder', (accounts) => {
 
     });
 
-    it('should find 4-leg path', async () => {
-        const cakeToken = '0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82';
-        const linkToken = '0xf8a0bf9cf54bb92f17374d9e9a321e6a111a51bd';
-        const usdtToken = usdtTokenAddress;
-        const usdcToken = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
-        const wbtcToken = '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c';
-        const dotToken = '0x7083609fce4d1d8dc0c979aab8c869ea2c873402';
-
-        const busdToken = '0xe9e7cea3dedca5984780bafc599bd69add087d56';
-        let fromToken = cakeToken; 
-        let toToken = dotToken;
-        let amount = toBN(1000).mul(decimals);
-        let result = await pathFinder.evaluate.call(fromToken,toToken,amount);
-        console.log(result[0].toString());
-        for(let i=0;i<result[1].length;i++){
-            console.log("Path [",i,"] = ",result[1][i]);
-        }
-        assert.equal(result[1].length,4,"4-leg path");
-        assert.notEqual(result[0].toString(),"0","Existent pair should not result in 0 amt");
-
-    });
+    // it('should find 4-leg path', async () => {
+    //     const cakeToken = '0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82';
+    //     const linkToken = '0xf8a0bf9cf54bb92f17374d9e9a321e6a111a51bd';
+    //     const usdtToken = usdtTokenAddress;
+    //     const usdcToken = '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d';
+    //     const wbtcToken = '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c';
+    //     const dotToken = '0x7083609fce4d1d8dc0c979aab8c869ea2c873402';
+    //
+    //     const busdToken = '0xe9e7cea3dedca5984780bafc599bd69add087d56';
+    //     let fromToken = cakeToken;
+    //     let toToken = dotToken;
+    //     let amount = toBN(1000).mul(decimals);
+    //     let result = await pathFinder.evaluate.call(fromToken,toToken,amount);
+    //     console.log(result[0].toString());
+    //     for(let i=0;i<result[1].length;i++){
+    //         console.log("Path [",i,"] = ",result[1][i]);
+    //     }
+    //     assert.equal(result[1].length,4,"4-leg path");
+    //     assert.notEqual(result[0].toString(),"0","Existent pair should not result in 0 amt");
+    //
+    // });
 
 });
