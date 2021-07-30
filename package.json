@@ -11,6 +11,7 @@
     "bsc-test": "truffle test --network bsc_test",
     "build": "truffle compile",
     "test": "truffle test ./test/PancakePathFinder-test.js ./test/TestTraderContract-upgradeable.js --network test",
+    "test-trader": "truffle test ./test/TestTraderContract-upgradeable.js --network test",
     "full-test": "concurrently --kill-others \"npm run ganache\" \"npm run test\"",
     "full-test-bsc": "concurrently --kill-others \"npm run ganachebsc\" \"npm run test\"",
     "compile": "truffle compile",

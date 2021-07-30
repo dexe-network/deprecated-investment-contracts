@@ -120,6 +120,7 @@ contract('TraderPool', (accounts) => {
         // deploy trader pool for testing with basicToken
         let createResult = await traderPoolFactory.createTraderContract(traderWallet, basicToken.address, toBN(0), commissions, true, false, "Trader token 1", "TRT1");
         console.log("createResult.logs.length = ",createResult.logs.length);
+        assert.equal(createResult.logs.length, 2);
         for(var i=0;i<createResult.logs.length;i++){
             console.log("createResult.logs[",i,"].length = ",createResult.logs[i].args.length, " ", createResult.logs[i].args.toString());
             console.log("response.logs[index].event = ",createResult.logs[i].event);
@@ -127,7 +128,7 @@ contract('TraderPool', (accounts) => {
                 console.log(">",i,">",j," ",createResult.logs[i].args[j].toString());
             }
         }
-        let contract3Address = createResult.logs[2].args[0];
+        let contract3Address = createResult.logs[createResult.logs.length-1].args[0];
         console.log("TraderPool deployed at ", contract3Address, "Gas consumed", createResult.receipt.gasUsed.toString());
 
         traderpool = await TraderPoolUpgradeable.at(contract3Address);
@@ -137,8 +138,15 @@ contract('TraderPool', (accounts) => {
 
         //deploy WETH based traderpool    
         let createResult2 = await traderPoolFactory.createTraderContract(traderWallet, wethAddress, toBN(0),commissions, true, false, "Trader token 2","TRT2");
-
-        let contractETHAddress = createResult2.logs[2].args[0];
+        for(var i=0;i<createResult2.logs.length;i++){
+            console.log("createResult2.logs[",i,"].length = ",createResult2.logs[i].args.length, " ", createResult2.logs[i].args.toString());
+            console.log("createResult2.logs[",i,"].event = ",createResult2.logs[i].event);
+            for(var j=0;j<createResult2.logs[i].args.length;j++){
+                console.log(">",i,">",j," ",createResult2.logs[i].args[j].toString());
+            }
+        }
+        assert.equal(createResult2.logs[createResult2.logs.length-1].event, "TraderContractCreated");
+        let contractETHAddress = createResult2.logs[createResult2.logs.length-1].args[0];
         console.log("TraderPool deployed at ", contractETHAddress, "Gas consumed", createResult2.receipt.gasUsed.toString());
 
         traderpoolETH = await TraderPoolUpgradeable.at(contractETHAddress);
@@ -152,17 +160,13 @@ contract('TraderPool', (accounts) => {
         
     });
 
-    // it('should set and read commissions', async () => {
-    //     for(let i=1;i<=3;i++){
-    //         let traderComm = await traderpoolETH.getCommission.call(toBN(i));
-    //         console.log("Commission ",i," - ", traderComm[0].toString(),"/", traderComm[1].toString());
-    //     }
-    //
-    //
-    //
-    // });
-    //
-    //
+    it('should set and read commissions', async () => {
+        for(let i=1;i<=3;i++){
+            let traderComm = await traderpoolETH.getCommission.call(toBN(i));
+            console.log("Commission ",i," - ", traderComm[0].toString(),"/", traderComm[1].toString());
+        }
+    });
+
     // it('should deposit using Ethereum native coin', async () => {
     //     let account1 = accounts[1];
     //     let account2 = accounts[2];
@@ -574,83 +578,83 @@ contract('TraderPool', (accounts) => {
         // assert delta_balance < 0 and abs(delta_balance - expected) / expected < 0.01
     });
    
-    it('Profit 2 profit trades by 2 isolated users', async () => {
-        const swappable = [tokenA, tokenB, tokenC, riskyToken, baseToken];
-        for (const [fromTokenIndex, fromToken] of swappable.entries()) {
-            for (const [toTokenIndex, toToken] of swappable.entries()) {
-                if (fromTokenIndex >= toTokenIndex) {
-                    continue;
-                }
-                swapper.setPrice(fromToken, toToken, 10**18, 10**18)   // too discuss
-            }
-        }
-        deposit_amount = 10 * 10**18;
-        for (const u of users) {
-            baseToken.approve.sendTransaction(trader_pool.address, deposit_amount, {'from': u});
-            trader_pool.deposit.sendTransaction(deposit_amount, {'from': u});
-            assert.equal((await lpToken.balanceOf.call(u)), deposit_amount);
-        }
-
-
-        assert.equal((await baseToken.balanceOf(trader_pool.address)), 30 * 10 ** 18);
-        assert.equal((await tokenA.balanceOf(trader_pool.address)), 0);
-        assert.equal((await tokenB.balanceOf(trader_pool.address)), 0);
-        assert.equal((await tokenC.balanceOf(trader_pool.address)), 0);
-        assert.equal((await riskyToken.balanceOf(trader_pool.address)), 0);
-
-        const trader = accounts[0];
-        const user1 = users[0];
-        const user2 = users[1];
-        trader_pool.swap.sendTransaction(baseToken, tokenA, 10*10**18, 10*10**18, {'from': trader})
-        assert.equal((await baseToken.balanceOf.call(trader_pool.address)), 20 * 10 ** 18);
-        assert.equal((await tokenA.balanceOf(trader_pool.address)), 10 * 10 ** 18);
-
-        const smallAmount = (1e-9 * 10 ** 18).toInt();
-        const riskyTradeAmount = smallAmount;
-
-        trader_pool.allowLpTokensForRiskyTrading.sendTransaction(riskyTradeAmount, {'from': user1});
-        trader_pool.buyRiskyToken.sendTransaction(riskyTradeAmount, riskyTradeAmount, {'from': trader});
-        assert.equal((await riskyToken.balanceOf.call(trader_pool.address)), riskyTradeAmount);
-        assert.equal((await trader_pool.totalLockedLp.call(), riskyTradeAmount);
-
-        await swapper.setPrice.sendTransaction(riskyToken.address, baseToken.address, 2*10**18, 1*10**18);
-
-        await trader_pool.allowLpTokensForRiskyTrading.sendTransaction((1.01*riskyTradeAmount).toInt(), {'from': user2});  // todo 1.01 because price mess up
-        await trader_pool.buyRiskyToken.sendTransaction(riskyTradeAmount, riskyTradeAmount/2, {'from': trader});  // user2 receive x/2, trade3 on risky token
-        assert.equal((await riskyToken.balanceOf(trader_pool.address)), (1.5*riskyTradeAmount).toInt());
-        const totalLockedLp = trader_pool.totalLockedLp.call();
-        const expected = (riskyTradeAmount * (1 + 0.5/0.5)).toInt();
-        assert.equal(abs(totalLockedLp-expected) / expected, ALPHA);
-
-        // swapper.setPrice(riskyToken.address, baseToken.address, 4*10**18, 1*10**18)  # 1 risky ~ 4 base
-        //
-        // riskyBalanceBefore = riskyToken.balanceOf(trader_pool.address)
-        //
-        // minBaseTokenAmount = 4 * riskyTradeAmount
-        // baseTokenAmount = trader_pool.sellRiskyToken.call(riskyTradeAmount, minBaseTokenAmount, {'from': trader})  # trade4 sell 2/3 risky token
-        // assert baseTokenAmount == minBaseTokenAmount
-        // tx = trader_pool.sellRiskyToken(riskyTradeAmount, minBaseTokenAmount, {'from': trader})  # trade4 sell 2/3 risky token
-        // print(f'{list(e for e in tx.events)=}')
-        // assert riskyToken.balanceOf(trader_pool.address) == int(0.5*riskyTradeAmount)
-        //
-        // # check won amount
-        // delta_balance1 = lpToken.balanceOf(user1) - deposit_amount
-        // delta_balance2 = lpToken.balanceOf(user2) - deposit_amount
-        //
-        // # todo: discuss why changed
-        // # expected1 = riskyTradeAmount * (1 / 1.5) * ((4-1)/1)
-        // # expected2 = riskyTradeAmount * (0.5 / 1.5) * ((4-2)/2)
-        //
-        // # expected1 = profile.riskyTokenAmount / riskyBalanceBefore * (baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator - totalLockedLp * riskyTokenAmount / riskyBalanceBefore)
-        // currentLpPriceInBase = 1  # todo test if not eq
-        // expected1 = (1 / 1.5) * (baseTokenAmount / currentLpPriceInBase - totalLockedLp * riskyTradeAmount / riskyBalanceBefore)
-        //
-        // expected2 = (0.5 / 1.5) * (baseTokenAmount / currentLpPriceInBase - totalLockedLp * riskyTradeAmount / riskyBalanceBefore)
-        //
-        // assert delta_balance1 > 0 and abs(delta_balance1 - expected1) / expected1 < ALPHA
-        // assert delta_balance2 > 0 and abs(delta_balance2 - expected2) / expected2 < ALPHA
-
-    });
+    // it('Profit 2 profit trades by 2 isolated users', async () => {
+    //     const swappable = [tokenA, tokenB, tokenC, riskyToken, baseToken];
+    //     for (const [fromTokenIndex, fromToken] of swappable.entries()) {
+    //         for (const [toTokenIndex, toToken] of swappable.entries()) {
+    //             if (fromTokenIndex >= toTokenIndex) {
+    //                 continue;
+    //             }
+    //             swapper.setPrice(fromToken, toToken, 10**18, 10**18)   // too discuss
+    //         }
+    //     }
+    //     deposit_amount = 10 * 10**18;
+    //     for (const u of users) {
+    //         baseToken.approve.sendTransaction(trader_pool.address, deposit_amount, {'from': u});
+    //         trader_pool.deposit.sendTransaction(deposit_amount, {'from': u});
+    //         assert.equal((await lpToken.balanceOf.call(u)), deposit_amount);
+    //     }
+    //
+    //
+    //     assert.equal((await baseToken.balanceOf(trader_pool.address)), 30 * 10 ** 18);
+    //     assert.equal((await tokenA.balanceOf(trader_pool.address)), 0);
+    //     assert.equal((await tokenB.balanceOf(trader_pool.address)), 0);
+    //     assert.equal((await tokenC.balanceOf(trader_pool.address)), 0);
+    //     assert.equal((await riskyToken.balanceOf(trader_pool.address)), 0);
+    //
+    //     const trader = accounts[0];
+    //     const user1 = users[0];
+    //     const user2 = users[1];
+    //     trader_pool.swap.sendTransaction(baseToken, tokenA, 10*10**18, 10*10**18, {'from': trader})
+    //     assert.equal((await baseToken.balanceOf.call(trader_pool.address)), 20 * 10 ** 18);
+    //     assert.equal((await tokenA.balanceOf(trader_pool.address)), 10 * 10 ** 18);
+    //
+    //     const smallAmount = (1e-9 * 10 ** 18).toInt();
+    //     const riskyTradeAmount = smallAmount;
+    //
+    //     trader_pool.allowLpTokensForRiskyTrading.sendTransaction(riskyTradeAmount, {'from': user1});
+    //     trader_pool.buyRiskyToken.sendTransaction(riskyTradeAmount, riskyTradeAmount, {'from': trader});
+    //     assert.equal((await riskyToken.balanceOf.call(trader_pool.address)), riskyTradeAmount);
+    //     assert.equal((await trader_pool.totalLockedLp.call(), riskyTradeAmount);
+    //
+    //     await swapper.setPrice.sendTransaction(riskyToken.address, baseToken.address, 2*10**18, 1*10**18);
+    //
+    //     await trader_pool.allowLpTokensForRiskyTrading.sendTransaction((1.01*riskyTradeAmount).toInt(), {'from': user2});  // todo 1.01 because price mess up
+    //     await trader_pool.buyRiskyToken.sendTransaction(riskyTradeAmount, riskyTradeAmount/2, {'from': trader});  // user2 receive x/2, trade3 on risky token
+    //     assert.equal((await riskyToken.balanceOf(trader_pool.address)), (1.5*riskyTradeAmount).toInt());
+    //     const totalLockedLp = trader_pool.totalLockedLp.call();
+    //     const expected = (riskyTradeAmount * (1 + 0.5/0.5)).toInt();
+    //     assert.equal(abs(totalLockedLp-expected) / expected, ALPHA);
+    //
+    //     // swapper.setPrice(riskyToken.address, baseToken.address, 4*10**18, 1*10**18)  # 1 risky ~ 4 base
+    //     //
+    //     // riskyBalanceBefore = riskyToken.balanceOf(trader_pool.address)
+    //     //
+    //     // minBaseTokenAmount = 4 * riskyTradeAmount
+    //     // baseTokenAmount = trader_pool.sellRiskyToken.call(riskyTradeAmount, minBaseTokenAmount, {'from': trader})  # trade4 sell 2/3 risky token
+    //     // assert baseTokenAmount == minBaseTokenAmount
+    //     // tx = trader_pool.sellRiskyToken(riskyTradeAmount, minBaseTokenAmount, {'from': trader})  # trade4 sell 2/3 risky token
+    //     // print(f'{list(e for e in tx.events)=}')
+    //     // assert riskyToken.balanceOf(trader_pool.address) == int(0.5*riskyTradeAmount)
+    //     //
+    //     // # check won amount
+    //     // delta_balance1 = lpToken.balanceOf(user1) - deposit_amount
+    //     // delta_balance2 = lpToken.balanceOf(user2) - deposit_amount
+    //     //
+    //     // # todo: discuss why changed
+    //     // # expected1 = riskyTradeAmount * (1 / 1.5) * ((4-1)/1)
+    //     // # expected2 = riskyTradeAmount * (0.5 / 1.5) * ((4-2)/2)
+    //     //
+    //     // # expected1 = profile.riskyTokenAmount / riskyBalanceBefore * (baseTokenAmount * currentLpPrice.denominator / currentLpPrice.numerator - totalLockedLp * riskyTokenAmount / riskyBalanceBefore)
+    //     // currentLpPriceInBase = 1  # todo test if not eq
+    //     // expected1 = (1 / 1.5) * (baseTokenAmount / currentLpPriceInBase - totalLockedLp * riskyTradeAmount / riskyBalanceBefore)
+    //     //
+    //     // expected2 = (0.5 / 1.5) * (baseTokenAmount / currentLpPriceInBase - totalLockedLp * riskyTradeAmount / riskyBalanceBefore)
+    //     //
+    //     // assert delta_balance1 > 0 and abs(delta_balance1 - expected1) / expected1 < ALPHA
+    //     // assert delta_balance2 > 0 and abs(delta_balance2 - expected2) / expected2 < ALPHA
+    //
+    // });
  
 
 });
