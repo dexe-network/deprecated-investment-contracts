@@ -3,7 +3,7 @@
 pragma solidity >=0.6.0 <0.8.0;
 
 import "./Proxy.sol";
-import "./util/Address.sol";
+import "contracts/upgradeable/util/Address.sol";
 import "./IBeacon.sol";
 
 /**
