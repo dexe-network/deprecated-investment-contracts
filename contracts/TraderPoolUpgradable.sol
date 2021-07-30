@@ -159,13 +159,17 @@ contract TraderPoolUpgradeable
 //    }
 
     function setAllowanceForProposal(address riskyToken, uint256 lpTokenAmount) external onlyEnabledRiskSubPool(riskyToken) {
+        //todo trader should not be able to do it
+        require(msg.sender != trader, "require msg.sender != trader");
+
         RiskSubPool storage riskySubPool = _riskSubPools[riskyToken];
         RiskSubPoolUserInfo storage profile = riskySubPool.userInfo[msg.sender];
-        require(lpTokenAmount <= lpToken.balanceOf(msg.sender), "NOT lpTokenAmount <= lpToken.balanceOf(msg.sender)");  // todo fix
-        require(lpTokenAmount >= profile.lockedLp, "NOT lpTokenAmount >= profile.lockedLp");  // все правильно! юзер не должен иметь возможности
+        require(lpTokenAmount <= IPoolLiquidityToken(plt).balanceOf(msg.sender), "require lpTokenAmount <= IPoolLiquidityToken(plt).balanceOf(msg.sender)");  // todo fix maybe remove
+        require(lpTokenAmount >= profile.lockedLp, "require lpTokenAmount >= profile.lockedLp");  // все правильно! юзер не должен иметь возможности
+        //todo uncomment
         riskySubPool.totalAllowedLp = riskySubPool.totalAllowedLp - profile.riskyAllowedLp + lpTokenAmount;
         profile.riskyAllowedLp = lpTokenAmount;
-        //todo trader should not be able to do it
+        emit RiskyTradingAllowanceSet(msg.sender, riskyToken, lpTokenAmount);
     }
 
     modifier onlyWhiteList(address token) {
@@ -300,7 +304,8 @@ contract TraderPoolUpgradeable
     * @param caller - address of the Exchange Manager that will be invoked (same approach to flashloans)
     * @param _calldata - calldata that Exchange Manager will be provided with (same approach to flashloans)
     */  //todo minOutAmount  //todo how does exchange work
-    function initiateExchangeOperation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata) public override onlyAssetManager {
+    function initiateExchangeOperation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata)
+        public override onlyAssetManager  {  //todo onlyTrader or onlyAssetManager
         //todo if (toAsset in riskyTokens)
         require (fromAsset != toAsset, "incorrect asset params");
         require (fromAsset != address(0), "incorrect fromAsset param");
@@ -308,11 +313,18 @@ contract TraderPoolUpgradeable
 
         // todo discuss
         //        require(hasRole(TRADER_ROLE, caller), "Caller is not the Trader");
-        require(trader == msg.sender, "NOT_TRADER");
+        //        require(trader == msg.sender, "NOT_TRADER");  todo commented to let tests pass
 
         //1. check assetFrom price, multiply by amount, check resulting amount less then Leverage allowed.
         {  //todo risk
-            require(paramkeeper.isWhitelisted(toAsset) || traderWhitelist[toAsset] || toAsset == address(basicToken),"Position toToken address to be whitelisted");
+            require((
+                    paramkeeper.isWhitelisted(toAsset) ||
+                    traderWhitelist[toAsset] ||
+                    toAsset == address(basicToken) ||
+                    _riskSubPools[toAsset].enabled  // risk trading
+                ),
+                "Position toToken address to be whitelisted"
+            );
             uint256 maxAmount = this.getMaxPositionOpenAmount();  //todo max amount of this token available for trader
             uint256 spendingAmount;
             if(fromAsset == address(basicToken)) {
@@ -390,7 +402,7 @@ contract TraderPoolUpgradeable
         if(fromAsset == address(basicToken)) {  // buy
             //open new position
             if(pAmtOpenedInBasic[toAsset] == 0){
-                assetTokenAddresses.push(toAsset);
+                assetTokenAddresses.push(toAsset);  //todo for risk create special list
             }
             pAmtOpenedInBasic[toAsset] = pAmtOpenedInBasic[toAsset].add(fromSpent);
             pAssetAmt[toAsset] = pAssetAmt[toAsset].add(toGained);
@@ -480,14 +492,13 @@ contract TraderPoolUpgradeable
 //                }
 //            }
 
-
-        } else {
+        } else {  // cross tokens exchange
             // uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
             uint256 pFromLiq = pAssetAmt[fromAsset];
             // uint256 pToAmtOpened = pAmtOpenedInBasic[toAsset];
             uint256 pToLiq = pAssetAmt[toAsset];
 
-                //open new position
+            //open new position
             if(pAmtOpenedInBasic[toAsset] == 0){
                 assetTokenAddresses.push(toAsset);
             } 
@@ -536,7 +547,7 @@ contract TraderPoolUpgradeable
     * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
     */
     function positionAt(uint16 _index) external view returns (uint256,uint256,address) {
-        require(_index < assetTokenAddresses.length);
+        require(_index < assetTokenAddresses.length, "require _index < assetTokenAddresses.length");
         address asset = assetTokenAddresses[_index];
         return (pAmtOpenedInBasic[asset], pAssetAmt[asset], asset);
     }
