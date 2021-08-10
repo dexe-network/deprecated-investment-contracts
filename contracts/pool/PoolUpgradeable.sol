@@ -160,6 +160,16 @@ abstract contract PoolUpgradeable is Initializable{
         return (10**uint256(IERC20Token(plt).decimals())).div(10**uint256(basicToken.decimals()));
     }
 
+    function getCurrentLpTokenPrice() public returns(uint256 nominator, uint256 denominator) {
+        uint256 totalCap = _totalCap();
+        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
+        if(totalCap > 0) {
+            return (totalCap, totalSupply);
+        }else{
+            return (1, 1);
+        }
+    }
+
     function _deposit(uint256 amount, address to) private {
         _beforeDeposit(amount, msg.sender, to);
         uint256 totalCap = _totalCap();

@@ -7,7 +7,7 @@ import "../math/SafeMath.sol";
 contract TestToken is ERC20, ERC20Burnable {
 
     constructor(string memory _name, string memory _symbol) ERC20(_name, _symbol) public {
-        _mint(msg.sender, 1000*1000*1000*1000*1000*1000 * (10 ** uint(decimals())));  // 1quintillion*decimals tokens
+        _mint(msg.sender, 1000*1000*1000*1000*1000*1000 * (10 ** uint(decimals())));  // 1 Quintillion * decimals tokens
     }
 
 }
