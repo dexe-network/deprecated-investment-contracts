@@ -451,83 +451,55 @@ contract TraderPoolUpgradeable
                 }
             }
         } else if(toAsset == address(basicToken)){  // sell token
-            uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
-            uint256 pFromLiq = pAssetAmt[fromAsset];
-
-            pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
-            uint256 originalSpentValue = pFromAmtOpened.mul(fromSpent).div(pFromLiq);
-            pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].sub(originalSpentValue);
-
-            //remove closed position
-            if (_riskSubPools[toAsset].enabled) {
-                // todo
-            } else {
-                if(pAmtOpenedInBasic[fromAsset] == 0){
-                    _deletePosition(fromAsset);
-                }
-            }
-
-            uint256 operationTraderCommission;
-            uint256 finResB;
-            //profit
-            if(originalSpentValue <= toGained) {
-                finResB = toGained.sub(originalSpentValue);
-
-                (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
-                operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
-
-                int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
-                //apply trader commision fine if required
-                if (currentTokenPrice < maxDepositedTokenPrice) {
-                    int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
-                    traderFine = traderFine.mul(traderFine);// ^2
-                    operationTraderCommission = traderFine.mulu(operationTraderCommission);
-                }
-
-                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);    
-                uint256 operationDeXeCommission = operationTraderCommission.mul(dexeCommissionPercentNom).div(dexeCommissionPercentDenom);
-                dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
-                traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
-
-                emit Profit(finResB);
-            } else {  //loss
-                finResB = originalSpentValue.sub(toGained);
-                operationTraderCommission = 0;
-                emit Loss(finResB);
-            }
-            availableCap = availableCap.add(finResB.sub(operationTraderCommission));
-
-            if (_riskSubPools[toAsset].enabled) {  // sell risk token
-                RiskSubPool storage subPool = _riskSubPools[toAsset];
-
-                // it's interesting to note that for different users profit/loss could be different
-                for(uint256 i=0; i<users.length(); ++i){
-                    address user = users.at(i);
-                    RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
-                    if (profile.riskyTokenAmount == 0) {
-                        emit E2("user", i, "skip because riskyTokenAmount=", 0);
-                        continue;
-                    }
-                    uint256 shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
-                    emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
-                    emit E2("user", i, "shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
-                    uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
-                    emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
-                    if (shareRelevantLp > profile.lockedLp) {
-                        profile.lockedLp = 0;
-                    } else {
-                        profile.lockedLp -= shareRelevantLp;
-                    }
-
-                    if (shareTradeLpEq > shareRelevantLp) {
-                        uint256 x = shareTradeLpEq - shareRelevantLp;
-                        emit E2("user", i, "mint x", x);
-                        lpToken.mint(user, x);
-                        profile.riskyAllowedLp += x;
-                    }
-                }
-            }
-
+//            uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
+//            uint256 pFromLiq = pAssetAmt[fromAsset];
+//
+//            pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
+//            uint256 originalSpentValue = pFromAmtOpened.mul(fromSpent).div(pFromLiq);
+//            pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].sub(originalSpentValue);
+//
+//            //remove closed position
+//            if (_riskSubPools[toAsset].enabled) {
+//                // todo
+//            } else {
+//                if(pAmtOpenedInBasic[fromAsset] == 0){
+//                    _deletePosition(fromAsset);
+//                }
+//            }
+//
+//            uint256 operationTraderCommission;
+//            uint256 finResB;
+//            //profit
+//            if(originalSpentValue <= toGained) {
+//                finResB = toGained.sub(originalSpentValue);
+//
+//                (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
+//                operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
+//
+//                int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
+//                //apply trader commision fine if required
+//                if (currentTokenPrice < maxDepositedTokenPrice) {
+//                    int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
+//                    traderFine = traderFine.mul(traderFine);// ^2
+//                    operationTraderCommission = traderFine.mulu(operationTraderCommission);
+//                }
+//
+//                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);
+//                uint256 operationDeXeCommission = operationTraderCommission.mul(dexeCommissionPercentNom).div(dexeCommissionPercentDenom);
+//                dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
+//                traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
+//
+//                emit Profit(finResB);
+//            } else {  //loss
+//                finResB = originalSpentValue.sub(toGained);
+//                operationTraderCommission = 0;
+//                emit Loss(finResB);
+//            }
+//            availableCap = availableCap.add(finResB.sub(operationTraderCommission));
+//
+//            if (_riskSubPools[toAsset].enabled) {  // sell risk token
+//                _sellRiskToken(toAsset, pFromLiq, fromAmt, toGained);
+//            }
         } else {  // cross tokens exchange
             require(!_riskSubPools[toAsset].enabled, "cross tokens exchange for risky tokens are not allowed for now");
 
@@ -553,6 +525,49 @@ contract TraderPoolUpgradeable
             }        
         }
 
+    }
+
+    function _sellRiskToken(
+        address riskToken,
+        uint256 riskyBalanceBefore,
+        uint256 basicTokenAmount,
+        uint256 riskyTokenAmount
+    ) internal {
+//        uint256 currentLpTokenPriceN;
+//        uint256 currentLpTokenPriceD;
+//        (currentLpTokenPriceN, currentLpTokenPriceD) = getCurrentLpTokenPrice();
+//        RiskSubPool storage subPool = _riskSubPools[riskToken];
+//        uint256 relevantLockedLpAmount = subPool.totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
+//        uint256 tradeLpAmountEquivalent = basicTokenAmount * currentLpTokenPriceD / currentLpTokenPriceN;
+//
+//        // it's interesting to note that for different users profit/loss could be different
+//        for(uint256 i=0; i<users.length(); ++i){
+//            address user = users.at(i);
+//            RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
+//            if (profile.riskyTokenAmount == 0) {
+//                emit E2("user", i, "skip because riskyTokenAmount=", 0);
+//                continue;
+//            }
+//            uint256 shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
+//            emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
+//            emit E2("user", i, "shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
+//            uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
+//            emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
+//            if (shareRelevantLp > profile.lockedLp) {
+//                profile.lockedLp = 0;
+//            } else {
+//                profile.lockedLp -= shareRelevantLp;
+//            }
+//
+//            if (shareTradeLpEq > shareRelevantLp) {
+//                uint256 x = shareTradeLpEq - shareRelevantLp;
+//                emit E2("user", i, "mint x", x);
+//                IPoolLiquidityToken(plt).mint(user, x);
+//                profile.riskyAllowedLp += x;
+//            } else {
+//                revert("todo burn");
+//            }
+//        }
     }
 
     function _deletePosition(address token) private {
