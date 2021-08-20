@@ -16,10 +16,10 @@ import "./interfaces/IAssetAutomaticExchangeManager.sol";
 import "./interfaces/ITraderPool.sol";
 import "./pancake/interfaces/IPancakeRouter01.sol";
 
-contract TraderPoolUpgradeable 
-    is 
-    AccessControlUpgradeable, 
-    PausableUpgradeable, 
+contract TraderPoolUpgradeable
+    is
+    AccessControlUpgradeable,
+    PausableUpgradeable,
     PoolUpgradeable,
     ITraderPoolInitializable,
     ITraderPool
@@ -170,6 +170,13 @@ contract TraderPoolUpgradeable
         riskySubPool.totalAllowedLp = riskySubPool.totalAllowedLp - profile.riskyAllowedLp + lpTokenAmount;
         profile.riskyAllowedLp = lpTokenAmount;
         emit RiskyTradingAllowanceSet(msg.sender, riskyToken, lpTokenAmount);
+
+        bool wasAdded = riskySubPool.users.add(msg.sender);
+        if (wasAdded) {
+            emit E0("added new user to subPool");
+        } else {
+            emit E0("user was already in subPool");
+        }
     }
 
     modifier onlyWhiteList(address token) {
@@ -187,7 +194,7 @@ contract TraderPoolUpgradeable
         delete _riskSubPools[token];
     }
 
-    
+
     function initialize(address[9] memory iaddr, uint256 _commissions, bool _actual, bool _investorRestricted) public override initializer{
         /**
         address[] iaddr = [
@@ -232,9 +239,9 @@ contract TraderPoolUpgradeable
 
         dexeCommissionAddress = iaddr[6];
         insuranceContractAddress = iaddr[7];
-        paramkeeper = IParamStorage(iaddr[4]);  
+        paramkeeper = IParamStorage(iaddr[4]);
         storageVersion = version();
-    
+
     }
 
     /**
@@ -288,7 +295,7 @@ contract TraderPoolUpgradeable
 
     /**
     * removes investors from whitelist. Investors whitelist is applied if isInvestorsWhitelistEnabled == 'true' only;
-    * @param _investors - array of investors addresses 
+    * @param _investors - array of investors addresses
     */
     function removeInvestorAddress (address[] memory _investors) public onlyTrader {
         for(uint i=0;i<_investors.length;i++){
@@ -318,8 +325,15 @@ contract TraderPoolUpgradeable
     * @param caller - address of the Exchange Manager that will be invoked (same approach to flashloans)
     * @param _calldata - calldata that Exchange Manager will be provided with (same approach to flashloans)
     */  //todo minOutAmount  //todo how does exchange work
-    function initiateExchangeOperation(address fromAsset, address toAsset, uint256 fromAmt, address caller, bytes memory _calldata)
-        public override onlyAssetManager  {  //todo onlyTrader or onlyAssetManager
+    function initiateExchangeOperation(
+        address fromAsset,
+        address toAsset,
+        uint256 fromAmt,
+        address caller,
+        bytes memory _calldata
+    ) public override onlyAssetManager  {  //todo onlyTrader or onlyAssetManager
+        emit E1("initiateExchangeOperation-STARTED", 1);
+
         //todo if (toAsset in riskyTokens)
         require (fromAsset != toAsset, "incorrect asset params");
         require (fromAsset != address(0), "incorrect fromAsset param");
@@ -399,7 +413,7 @@ contract TraderPoolUpgradeable
 //        }
 
         uint256 fromSpent;
-        uint256 toGained; 
+        uint256 toGained;
         //2. perform exchange  //todo лютый код
         {
             uint256 fromAssetBalanceBefore = IERC20Upgradeable(fromAsset).balanceOf(address(this));
@@ -451,13 +465,14 @@ contract TraderPoolUpgradeable
                 }
             }
         } else if(toAsset == address(basicToken)){  // sell token
-//            uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
-//            uint256 pFromLiq = pAssetAmt[fromAsset];
-//
-//            pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
-//            uint256 originalSpentValue = pFromAmtOpened.mul(fromSpent).div(pFromLiq);
-//            pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].sub(originalSpentValue);
-//
+            uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
+            uint256 pFromLiq = pAssetAmt[fromAsset];
+
+            pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
+            uint256 originalSpentValue = pFromAmtOpened.mul(fromSpent).div(pFromLiq);
+            pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].sub(originalSpentValue);
+
+            // todo discuss
 //            //remove closed position
 //            if (_riskSubPools[toAsset].enabled) {
 //                // todo
@@ -466,42 +481,48 @@ contract TraderPoolUpgradeable
 //                    _deletePosition(fromAsset);
 //                }
 //            }
-//
-//            uint256 operationTraderCommission;
-//            uint256 finResB;
-//            //profit
-//            if(originalSpentValue <= toGained) {
-//                finResB = toGained.sub(originalSpentValue);
-//
-//                (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
-//                operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
-//
-//                int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
-//                //apply trader commision fine if required
-//                if (currentTokenPrice < maxDepositedTokenPrice) {
-//                    int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
-//                    traderFine = traderFine.mul(traderFine);// ^2
-//                    operationTraderCommission = traderFine.mulu(operationTraderCommission);
+
+            uint256 operationTraderCommission;
+            uint256 finResB;
+            if(originalSpentValue <= toGained) {  //profit
+                finResB = toGained.sub(originalSpentValue);
+
+                (uint16 traderCommissionPercentNom, uint16 traderCommissionPercentDenom) = _getCommission(1);
+                operationTraderCommission = finResB.mul(traderCommissionPercentNom).div(traderCommissionPercentDenom);
+
+                int128 currentTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());
+                //apply trader commision fine if required
+                if (currentTokenPrice < maxDepositedTokenPrice) {
+                    int128 traderFine = currentTokenPrice.div(maxDepositedTokenPrice);
+                    traderFine = traderFine.mul(traderFine);// ^2
+                    operationTraderCommission = traderFine.mulu(operationTraderCommission);
+                }
+
+                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);
+                uint256 operationDeXeCommission = operationTraderCommission.mul(dexeCommissionPercentNom).div(dexeCommissionPercentDenom);
+                dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
+                traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
+                emit Profit(finResB);
+
+//                if (_riskSubPools[fromAsset].enabled) {  // sell risk token
+//                    IPoolLiquidityToken(plt).mint(user, x);
+////  todo                   profile.riskyAllowedLp += x;  // todo event
 //                }
-//
-//                (uint16 dexeCommissionPercentNom, uint16 dexeCommissionPercentDenom) = _getCommission(3);
-//                uint256 operationDeXeCommission = operationTraderCommission.mul(dexeCommissionPercentNom).div(dexeCommissionPercentDenom);
-//                dexeCommissionBalance = dexeCommissionBalance.add(operationDeXeCommission);
-//                traderCommissionBalance = traderCommissionBalance.add(operationTraderCommission.sub(operationDeXeCommission));
-//
-//                emit Profit(finResB);
-//            } else {  //loss
-//                finResB = originalSpentValue.sub(toGained);
-//                operationTraderCommission = 0;
-//                emit Loss(finResB);
-//            }
-//            availableCap = availableCap.add(finResB.sub(operationTraderCommission));
-//
-//            if (_riskSubPools[toAsset].enabled) {  // sell risk token
-//                _sellRiskToken(toAsset, pFromLiq, fromAmt, toGained);
-//            }
+            } else {  //loss
+                finResB = originalSpentValue.sub(toGained);
+                operationTraderCommission = 0;
+                emit E3("LOSS finResB: ", finResB, " = originalSpentValue ", originalSpentValue, " - toGained ", toGained);
+                emit Loss(finResB);
+            }
+            availableCap = availableCap.add(finResB.sub(operationTraderCommission));
+
+            if (_riskSubPools[fromAsset].enabled) {  // sell risk token, process profit/loss per user
+                _sellRiskToken(fromAsset, fromAmt, pFromLiq, toGained);
+            }
+
         } else {  // cross tokens exchange
             require(!_riskSubPools[toAsset].enabled, "cross tokens exchange for risky tokens are not allowed for now");
+            require(!_riskSubPools[fromAsset].enabled, "cross tokens exchange for risky tokens are not allowed for now");
 
             // uint256 pFromAmtOpened = pAmtOpenedInBasic[fromAsset];
             uint256 pFromLiq = pAssetAmt[fromAsset];
@@ -511,63 +532,71 @@ contract TraderPoolUpgradeable
             //open new position
             if(pAmtOpenedInBasic[toAsset] == 0){
                 assetTokenAddresses.push(toAsset);
-            } 
+            }
 
             pAmtOpenedInBasic[fromAsset] = pAmtOpenedInBasic[fromAsset].mul(pFromLiq.sub(fromSpent)).div(pFromLiq);
             pAssetAmt[fromAsset] = pFromLiq.sub(fromSpent);
 
-            pAmtOpenedInBasic[toAsset] = pAmtOpenedInBasic[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpenedInBasic[toAsset]); 
+            pAmtOpenedInBasic[toAsset] = pAmtOpenedInBasic[toAsset].mul(fromSpent).div(pFromLiq).add(pAmtOpenedInBasic[toAsset]);
             pAssetAmt[toAsset] = pToLiq.add(toGained);
 
             //remove closed position
             if(pAmtOpenedInBasic[fromAsset] == 0){
                 _deletePosition(fromAsset);
-            }        
+            }
         }
 
     }
 
     function _sellRiskToken(
-        address riskToken,
+        address riskyToken,
+        uint256 riskyTokenAmount,
         uint256 riskyBalanceBefore,
-        uint256 basicTokenAmount,
-        uint256 riskyTokenAmount
+        uint256 basicTokenAmount
     ) internal {
-//        uint256 currentLpTokenPriceN;
-//        uint256 currentLpTokenPriceD;
-//        (currentLpTokenPriceN, currentLpTokenPriceD) = getCurrentLpTokenPrice();
-//        RiskSubPool storage subPool = _riskSubPools[riskToken];
-//        uint256 relevantLockedLpAmount = subPool.totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
-//        uint256 tradeLpAmountEquivalent = basicTokenAmount * currentLpTokenPriceD / currentLpTokenPriceN;
-//
-//        // it's interesting to note that for different users profit/loss could be different
-//        for(uint256 i=0; i<users.length(); ++i){
-//            address user = users.at(i);
-//            RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
-//            if (profile.riskyTokenAmount == 0) {
-//                emit E2("user", i, "skip because riskyTokenAmount=", 0);
-//                continue;
-//            }
-//            uint256 shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
-//            emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
-//            emit E2("user", i, "shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
-//            uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
-//            emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
-//            if (shareRelevantLp > profile.lockedLp) {
-//                profile.lockedLp = 0;
-//            } else {
-//                profile.lockedLp -= shareRelevantLp;
-//            }
-//
-//            if (shareTradeLpEq > shareRelevantLp) {
-//                uint256 x = shareTradeLpEq - shareRelevantLp;
-//                emit E2("user", i, "mint x", x);
-//                IPoolLiquidityToken(plt).mint(user, x);
-//                profile.riskyAllowedLp += x;
-//            } else {
-//                revert("todo burn");
-//            }
-//        }
+        emit E0("CALLED _sellRiskToken");
+        RiskSubPool storage riskySubPool = _riskSubPools[riskyToken];
+        int128 currentLpTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());  // todo discuss
+        emit E1("currentLpTokenPrice = ", currentLpTokenPrice.toUInt());  // todo representation
+        RiskSubPool storage subPool = _riskSubPools[riskyToken];
+        uint256 relevantLockedLpAmount = subPool.totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
+        uint256 tradeLpAmountEquivalent = ABDKMath64x64.fromUInt(basicTokenAmount).div(currentLpTokenPrice).toUInt();
+
+        emit E1("subPool.users.length() = ", subPool.users.length());
+        for(uint256 i=0; i<subPool.users.length(); ++i){
+            address user = subPool.users.at(i);
+            RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
+
+//                        userShareSoldRiskTradeAmount = tradeRiskAmount * userTotalRiskAmount / totalRiskAmount;
+//                        userShareReceivedBasicTokenTradeAmount = tradeBasicTokenAmount * userTotalRiskAmount / totalRiskAmount;
+//                        userLockedForThisRiskShare = profile.totalLocked * userShareSoldRiskTradeAmount / userTotalRiskAmount; xxx
+
+
+            if (profile.riskyTokenAmount == 0) {
+                emit E2("SKIP user", i, "because riskyTokenAmount=", 0);
+                continue;
+            }
+            uint256 shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore;
+            emit E2("user", i, "profile.riskyTokenAmount", profile.riskyTokenAmount);
+            emit E2("user", i, "shareRelevantLp = relevantLockedLpAmount * profile.riskyTokenAmount / riskyBalanceBefore", shareRelevantLp);
+            uint256 shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore;
+            emit E2("user", i, "shareTradeLpEq = tradeLpAmountEquivalent * profile.riskyTokenAmount / riskyBalanceBefore", shareTradeLpEq);
+
+            profile.lockedLp -= shareRelevantLp;  // discuss
+            if (shareTradeLpEq > shareRelevantLp) {
+                uint256 x = shareTradeLpEq - shareRelevantLp;
+                emit E2("PROFIT user", i, "mint x", x);
+                IPoolLiquidityToken(plt).mint(user, x);
+                profile.riskyAllowedLp += x;
+            } else if (shareTradeLpEq == shareRelevantLp) {
+                emit E1("ZERO PROFIT/LOSS user", i);
+            } else {  // shareTradeLpEq < shareRelevantLp
+                uint256 x = shareRelevantLp - shareTradeLpEq;
+                emit E2("LOSS user", i, "burn x", x);
+                IPoolLiquidityToken(plt).burn(user, x);
+                profile.riskyAllowedLp += x;
+            }
+        }
     }
 
     function _deletePosition(address token) private {
@@ -585,8 +614,15 @@ contract TraderPoolUpgradeable
         assetTokenAddresses.pop();
     }
 
+//    todo function moveRiskSubPoolToGeneralPool(address riskyToken) onlyAdmin {
+//        require(isWhiteList[riskyToken]);
+//        delete _riskSubPools[riskyToken]; // in fact we just need to forget
+//        // unlock user funds
+//        // emit event
+//    }
+
     /**
-    * returns amount of positions in Positions array, i.e. amount of Open positions 
+    * returns amount of positions in Positions array, i.e. amount of Open positions
     */
     function positionsLength() external view returns (uint256) {
         return assetTokenAddresses.length;
@@ -596,8 +632,8 @@ contract TraderPoolUpgradeable
     * returns Posision data from array at the @param _index specified. return data:
     *    1) amountOpened - the amount of Basic Tokens a position was opened with.
     *    2) liquidity - the amount of Destination tokens received from exchange when position was opened.
-    *    3) token - the address of ERC20 token that position was opened to 
-    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+    *    3) token - the address of ERC20 token that position was opened to
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.
     */
     function positionAt(uint16 _index) external view returns (uint256,uint256,address) {
         require(_index < assetTokenAddresses.length, "require _index < assetTokenAddresses.length");
@@ -609,8 +645,8 @@ contract TraderPoolUpgradeable
     * returns Posision data from array for the @param asset:
     *    1) amountOpened - the amount of Basic Tokens a position was opened with.
     *    2) liquidity - the amount of Destination tokens received from exchange when position was opened.
-    *    3) token - the address of ERC20 token that position was opened to 
-    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.  
+    *    3) token - the address of ERC20 token that position was opened to
+    * i.e. the position was opened with  "amountOpened" of BasicTokens and resulted in "liquidity" amount of "token"s.
     */
     function positionFor(address asset) external view returns (uint256,uint256,address) { //todo remove code duplication
         return (pAmtOpenedInBasic[asset], pAssetAmt[asset], asset);
@@ -619,7 +655,7 @@ contract TraderPoolUpgradeable
     //todo priceofLp = SUM(positionFor(asset)[0] for asset in ...) slippage??
 
     /**
-    * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract. 
+    * initiates withdraw of the Trader commission onto the Trader Commission address. Used by Trader to get his commission out from this contract.
     * @param amount - amount of commission to withdraw (allows for partial withdrawal)
     */
     function withdrawTraderCommission(uint256 amount) public onlyTrader {
@@ -627,7 +663,7 @@ contract TraderPoolUpgradeable
         basicToken.safeTransfer(traderCommissionAddress, amount);
         traderCommissionBalance = traderCommissionBalance.sub(amount);
     }
-    
+
     /**
     * initiates withdraw of the Dexe commission onto the Platform Commission address. Anyone can trigger this function
     * @param amount - amount of commission to withdraw (allows for partial withdrawal)
@@ -640,7 +676,7 @@ contract TraderPoolUpgradeable
 
 
     /**
-    * Change traderCommission address. The address that trader receives his commission out from this contract. 
+    * Change traderCommission address. The address that trader receives his commission out from this contract.
     * @param _traderCommissionAddress - new trader commission address
     */
     function setTraderCommissionAddress(address _traderCommissionAddress) public onlyTrader {
@@ -649,7 +685,7 @@ contract TraderPoolUpgradeable
 
     //TODO: apply governance here
     /**
-    * set external commission percent in a form of natural fraction: _nom/_denom. 
+    * set external commission percent in a form of natural fraction: _nom/_denom.
     * @param _type - commission type (1 for trader commission, 2 for investor commission, 3 for platform commission)
     * @param _nom - nominator of the commission fraction
     * @param _denom - denominator of the commission fraction
@@ -660,7 +696,7 @@ contract TraderPoolUpgradeable
         uint16[6] memory coms;
         (coms[0],coms[1]) = _getCommission(1);
         (coms[2],coms[3]) = _getCommission(2);
-        (coms[4],coms[5]) = _getCommission(3);  
+        (coms[4],coms[5]) = _getCommission(3);
         if(_type == 1){
             //trader
             coms[0] = _nom;
@@ -673,7 +709,7 @@ contract TraderPoolUpgradeable
             //dexe commission
             coms[4] = _nom;
             coms[5] = _denom;
-        } 
+        }
         uint256 _commissions = 0;
         _commissions = _commissions.add(coms[0]);
         _commissions = _commissions.add(uint256(coms[1]) << 32);
@@ -687,7 +723,7 @@ contract TraderPoolUpgradeable
     }
 
     /**
-    * put contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds. 
+    * put contract on hold. Paused contract doesn't accepts Deposits but allows to withdraw funds.
     */
     function pause() onlyAdmin public {
         super._pause();
@@ -721,35 +757,35 @@ contract TraderPoolUpgradeable
     }
 
     // /**
-    // * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    // * returns address parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations.
     // * @param key - ID of address parameter;
     // */
     // function getAddress(uint16 key) external override view returns (address){
     //     return paramkeeper.getAddress(key);
     // }
     // /**
-    // * returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations. 
+    // * returns uint256 parameter from central parameter storage operated by the platform. Used by PositionManager contracts to receive settings required for performing operations.
     // * @param key - ID of uint256 parameter;
     // */
     // function getUInt256(uint16 key) external override view returns (uint256){
     //     return paramkeeper.getUInt256(key);
     // }
-    
+
     /**
     * returns the data of the User:
     *    1) total amount of BasicTokens deposited (historical value)
     *    2) average traderToken price of the investor deposit (historical value)
-    *    3) current amount of TraderPool liquidity tokens that User has on the balance. 
-    * @param holder - address of the User's wallet. 
+    *    3) current amount of TraderPool liquidity tokens that User has on the balance.
+    * @param holder - address of the User's wallet.
      */
     function getUserData(address holder) public view returns (uint256, int128, uint256) {
         return (deposits[holder].amount, deposits[holder].price, IERC20Token(plt).balanceOf(holder));
     }
 
     /**
-    * returns total cap values for this contract: 
+    * returns total cap values for this contract:
     * 1) totalCap value - total capitalization, including profits and losses, denominated in BasicTokens. i.e. total amount of BasicTokens that porfolio is worhs of.
-    * 2) totalSupply of the TraderPool liquidity tokens (or total amount of trader tokens sold to Users). 
+    * 2) totalSupply of the TraderPool liquidity tokens (or total amount of trader tokens sold to Users).
     * Trader token current price = totalCap/totalSupply;
     */
     function getTotalValueLocked() public view returns (uint256, uint256){
@@ -798,9 +834,9 @@ contract TraderPoolUpgradeable
                 uint256 fundPositionAmt = amountTokenSent.mul(pAmtOpenedInBasic[assetTokenAddresses[i]]).div(totalOpened);
                 if(fundPositionAmt < amoutTokenLeft)//underflow with division
                     fundPositionAmt = amoutTokenLeft;
-                
+
                 uint256 fromSpent;
-                uint256 toGained; 
+                uint256 toGained;
                 //perform automatic exchange
                 {
                     uint256 fromAssetBalanceBefore = basicToken.balanceOf(address(this));
@@ -846,7 +882,7 @@ contract TraderPoolUpgradeable
         }
     }
 
- 
+
     function _getCommission(uint256 _type) internal view returns (uint16,uint16){
         uint16 denom;
         uint16 _nom;
@@ -856,11 +892,11 @@ contract TraderPoolUpgradeable
             _nom = uint16((commissions & 0x000000000000000000000000000000000000000000000000FFFFFFFF00000000) >> 32);
         } else if (_type == 2) {
             //investor commission
-            denom =uint16((commissions & 0x0000000000000000000000000000000000000000FFFFFFFF0000000000000000) >> 64); 
+            denom =uint16((commissions & 0x0000000000000000000000000000000000000000FFFFFFFF0000000000000000) >> 64);
             _nom = uint16((commissions & 0x00000000000000000000000000000000FFFFFFFF000000000000000000000000) >> 96);
         } else if (_type == 3) {
             //dexe commission
-            denom =uint16((commissions & 0x000000000000000000000000FFFFFFFF00000000000000000000000000000000) >> 128); 
+            denom =uint16((commissions & 0x000000000000000000000000FFFFFFFF00000000000000000000000000000000) >> 128);
             _nom = uint16((commissions & 0x0000000000000000FFFFFFFF0000000000000000000000000000000000000000) >> 160);
         } else {
             _nom = uint16(0);
