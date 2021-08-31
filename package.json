@@ -19,7 +19,7 @@
     "remixd": "remixd -s ./contracts/ --remix-ide https://remix.ethereum.org",
     "ganache-local": "ganache-cli --networkId 5777 -l 4000000000 -q -a ${ACCOUNT_AMOUNT:-10} -s 50a41a049751cc9c6b5317dfb94ff1751a1111f7780e09fc34102a0ae6b974a0ec3e382327d9f0cbd8c56535b78caf35636e56eabf6dd5661ed9b54325cd54dc",
     "ganache": "ganache-cli --networkId 5777 -l 40000000 -q -f https://mainnet.infura.io/v3/31d99ba869424488ac90605233d4da0e -a ${ACCOUNT_AMOUNT:-10} -s 50a41a049751cc9c6b5317dfb94ff1751a1111f7780e09fc34102a0ae6b974a0ec3e382327d9f0cbd8c56535b78caf35636e56eabf6dd5661ed9b54325cd54dc",
-    "ganachebsc": "ganache-cli --allowUnlimitedContractSize -f https://bsc-dataseed1.binance.org -q -i 5777 --hardfork istanbul -l 70000000 -e 10000 -a ${ACCOUNT_AMOUNT:-10} -s 50a41a049751cc9c6b5317dfb94ff1751a1111f7780e09fc34102a0ae6b974a0ec3e382327d9f0cbd8c56535b78caf35636e56eabf6dd5661ed9b54325cd54dc",
+    "ganachebsc": "ganache-cli --allowUnlimitedContractSize -f http://62.80.189.158:8645 -q -i 5777 --hardfork istanbul -l 70000000 -e 10000 -a ${ACCOUNT_AMOUNT:-10} -s 50a41a049751cc9c6b5317dfb94ff1751a1111f7780e09fc34102a0ae6b974a0ec3e382327d9f0cbd8c56535b78caf35636e56eabf6dd5661ed9b54325cd54dc",
     "migrate": "truffle migrate"
   },
   "author": "",

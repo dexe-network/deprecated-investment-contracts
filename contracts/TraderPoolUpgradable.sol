@@ -79,7 +79,29 @@ contract TraderPoolUpgradeable
         //version in format aaa.bbb.ccc => aaa*1E6+bbb*1E3+ccc;
         return uint32(10010001);
     }
+/*
+1 lp = 1base
+price = 1
 
+admin buy 50, lockedLp=50, riskyTokenAmount=50
+
+price = 1000
+
+user approve 100
+
+trader buy 150 -> admin 50 + 100 user
+admin:
+  lockedLp=50+50, riskyTokenAmount=50+50/1000
+user:
+  lockedLp=100, riskyTokenAmount=100/1000
+
+price = 2_000
+
+SELL WHOLE
+admin recv profit = (50+50/1000)*2000 - locked100, locked:=0
+admin recv profit = 100/1000 * 2000 - locked100, locked:=0
+
+*/
     struct RiskSubPoolUserInfo{
         uint256 riskyAllowedLp;  // allowance is given in LP tokens
         uint256 lockedLp;  // they locked in prices of basePrice at the moment of the riskToken buy
@@ -353,7 +375,7 @@ contract TraderPoolUpgradeable
         }
     }
 
-        function _sellRiskToken(
+    function _sellRiskToken(
         address riskyToken,
         uint256 riskyTokenAmount,
         uint256 riskyBalanceBefore,
@@ -982,6 +1004,8 @@ contract TraderPoolUpgradeable
         return (_nom, denom);
     }
 
+    // todo discuss
+    //   note it's slippage prices
     function _totalPositionsCap() internal view returns (uint256) {
         uint256 totalPositionsCap = 0;
         for(uint256 i=0;i<assetTokenAddresses.length;i++){

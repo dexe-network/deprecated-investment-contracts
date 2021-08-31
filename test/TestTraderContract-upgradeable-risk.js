@@ -250,7 +250,7 @@ contract('TraderPool', (accounts) => {
     }
 
     async function _blockchainSetUp() {
-        console.log("_blockchainSetUp:" _blockchainSetUp);
+        console.log("_blockchainSetUp:", _blockchainSetUp);
 
         assert.isAtLeast(accounts.length, 10, 'User accounts must be at least 10');
         traderWallet = accounts[9];
@@ -1002,7 +1002,7 @@ contract('TraderPool', (accounts) => {
     //
     // });
 
-    it('profit on riskToken1, loss on riskTokwn2', async () => {
+    it('profit on riskToken1, loss on riskToken2', async () => {
         let tx;
 
         // createProposal 1
