@@ -212,15 +212,46 @@ contract('TraderPool', (accounts) => {
     let uniswapExhangeTool;
 
     let allDeployedContracts = [];
-    
+
+    async function moveRiskPriceUp(shiftAmount, shifter, _riskToken) {
+        await basicToken.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
+        let tx = await uniswapRouter.swapExactTokensForTokens.sendTransaction(
+            shiftAmount,
+            toBN(0),
+            [basicToken.address, _riskToken.address],
+            shifter,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {'from': shifter}
+        )
+        printEvents(tx, "moveRiskPriceUp");
+        // todo log price change
+    }
+
+    async function moveRiskPriceDown(shiftAmount, shifter, _riskToken) {
+        await _riskToken.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
+        let tx = await uniswapRouter.swapExactTokensForTokens.sendTransaction(
+            shiftAmount,
+            toBN(0),
+            [_riskToken.address, basicToken.address],
+            shifter,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {'from': shifter}
+        )
+        printEvents(tx, "moveRiskPriceDown");
+        // todo log price change
+    }
+
     async function blockchainSetUp() {
-        await _blockchainSetUp();
+        // await _blockchainSetUp();
+
         // const snapShot = await helper.takeSnapshot();
         // const snapshotId = snapShot['result'];
         // cons
     }
 
     async function _blockchainSetUp() {
+        console.log("_blockchainSetUp:" _blockchainSetUp);
+
         assert.isAtLeast(accounts.length, 10, 'User accounts must be at least 10');
         traderWallet = accounts[9];
 
@@ -231,6 +262,7 @@ contract('TraderPool', (accounts) => {
 
         paramKeeper = await ParamKeeper.deployed();
         allDeployedContracts.push(paramKeeper);
+        console.log("paramKeeper deployed", paramKeeper.address);
 
         const exchangerAddress = await paramKeeper.getAssetAutomaticExchangeManager();
         const exchanger = PancakeAutoExchangeTool.at(exchangerAddress);
@@ -365,16 +397,21 @@ contract('TraderPool', (accounts) => {
 
     const vendor = 'BSC';
     let snapshotId;
-    before(async () => {
-        await blockchainSetUp();
-        const snapShot = await takeSnapshot();
-        snapshotId = snapShot['result'];
-        console.log("snapshotId: ", snapshotId);
-    });
+    // before(async () => {
+    //     await blockchainSetUp();
+    //     const snapShot = await takeSnapshot();
+    //     snapshotId = snapShot['result'];
+    //     console.log("snapshotId: ", snapshotId);
+    // });
+    //
+    // afterEach(async() => {
+    //     await revertToSnapShot(snapshotId);
+    // });
 
-    afterEach(async() => {
-        await revertToSnapShot(snapshotId);
-    });
+    async function getTokenPrice(token){
+        // price is calculated for 10**18 tokens sold to baseToken
+        return (await uniswapRouter.getAmountsOut.call(decimals, [token.address, basicToken.address]))[1];
+    }
 
     it('Test price moving', async () => {
         let shiftAmount = toBN(1000).mul(decimals);
@@ -383,26 +420,21 @@ contract('TraderPool', (accounts) => {
         const shifterRiskTokenBalanceBefore = await riskToken1.balanceOf.call(shifter);
         console.log("risk balance shifter before ", shifterRiskTokenBalanceBefore.toString());
 
-        console.log("price before move ", (await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[1].toString());
+        const priceBeforeMove = await getTokenPrice(riskToken1);
+        console.log("price before move ", priceAfterMove.toString());
         // , (
         //     await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
         //     // await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
 
-        await basicToken.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
-        let tx = await uniswapRouter.swapExactTokensForTokens.sendTransaction(
-            shiftAmount,
-            toBN(0),
-            [basicToken.address, riskToken1.address],
-            shifter,
-            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-            {'from': shifter}
-        )
-        printEvents(tx, "shift swap");
+        await moveRriskPriceUp();
         const shifterRiskTokenBalanceAfter = await riskToken1.balanceOf.call(shifter);
         console.log("risk balance shifter after ", shifterRiskTokenBalanceAfter.toString());
         console.log("risk balance shifter change ", (shifterRiskTokenBalanceAfter-shifterRiskTokenBalanceBefore).toString());
 
-        console.log("price after move ", (await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[1].toString());
+        const priceAfterMove = await getTokenPrice(riskToken1);
+        console.log("price after move ", priceAfterMove.toString());
+
+        // todo assert priceAfterMove > priceBeforeMove
     });
 
     it('Test profit risk trade', async () => {
@@ -481,20 +513,8 @@ contract('TraderPool', (accounts) => {
         // let shiftAmount = toBN(1000).mul(billion).mul(decimals);
         let shiftAmount = toBN(1000).mul(decimals);
         let shifter = accounts[0];
+        await moveRiskPriceUp(shiftAmount, shifter, riskToken1);
         console.log('riskToken1.balanceOf.call(shifter): ', (await riskToken1.balanceOf.call(shifter)).toString());
-        await riskToken1.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
-        await basicToken.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
-        tx = await uniswapRouter.swapExactTokensForTokens.sendTransaction(
-            shiftAmount,
-            toBN(0),
-            [basicToken.address, riskToken1.address],
-            users[0],
-            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-            {'from': shifter}
-        )
-        printEvents(tx, "swap to move price down");
-        console.log('riskToken1.balanceOf.call(shifter): ', (await riskToken1.balanceOf.call(shifter)).toString());
-
         console.log("price after move ", (
             await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
 
@@ -537,269 +557,349 @@ contract('TraderPool', (accounts) => {
         //     "too small delta_balance: " + deltaBalance.toString());
     });
 
-    //     it('Test loss risk trade', async () => {
-    //     const usersAndTrader = [accounts[1], accounts[2], accounts[3], traderWallet];
-    //     const users = [accounts[1], accounts[2], accounts[3]];
-    //     const deposit_amount = toBN(10).mul(decimals);
-    //     for(const u of usersAndTrader) {
-    //         await basicToken.approve.sendTransaction(traderpool.address, deposit_amount, {'from': u});
-    //         await traderpool.deposit.sendTransaction(deposit_amount, {'from': u});
-    //         assert.equal((await TraderLPT.balanceOf.call(u)).toString(), deposit_amount.toString());
-    //     }
-    //
-    //     assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(40).mul(decimals).toString());
-    //     assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
-    //     assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
-    //     assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
-    //
-    //     let maxPositionAmount = await traderpool.getMaxPositionOpenAmount.call();
-    //     console.log("maxPositionAmount: ",maxPositionAmount.toString());
-    //
-    //     let amount = toBN(10).mul(decimals);
-    //     // buy another token
-    //     let path = [basicToken.address, anotherToken.address];
-    //     let tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         amount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: basic -> another")
-    //
-    //     assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
-    //     assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
-    //     // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
-    //     assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
-    //     assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
-    //     // assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(30).mul(decimals).toString());
-    //     // assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(10).mul(decimals).toString());
-    //     // assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
-    //     // assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
-    //
-    //     tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
-    //     printEvents(tx, "createProposal")
-    //
-    //     tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, toBN(10).mul(decimals), {'from': users[0]});
-    //     printEvents(tx, "setAllowanceForProposal")
-    //
-    //     const riskyTradeAmount = decimals.div(toBN(10000));  // 0.0001
-    //     // buy risky token
-    //     path = [basicToken.address, riskToken1.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: basic -> risky1")
-    //
-    //     assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
-    //     assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
-    //     // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
-    //     assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN('99799999999999'));
-    //     // assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), riskyTradeAmount);
-    //     assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
-    //
-    //     console.log("accounts[0] balance of basicToken: ", (await basicToken.balanceOf(accounts[0])).toString());
-    //     console.log("accounts[0] balance of riskToken1: ", (await riskToken1.balanceOf(accounts[0])).toString());
-    //
-    //     console.log("price before move ", (
-    //         await uniswapRouter.getAmountsOut.call(trillion, [riskToken1.address, basicToken.address]))[0].toString());
-    //
-    //     // let shiftAmount = toBN(1000).mul(billion).mul(decimals);
-    //     let shiftAmount = toBN(1000).mul(decimals);
-    //     let shifter = accounts[0];
-    //     console.log('riskToken1.balanceOf.call(shifter): ', (await riskToken1.balanceOf.call(shifter)).toString());
-    //     await riskToken1.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
-    //     tx = await uniswapRouter.swapExactTokensForTokens.sendTransaction(
-    //         shiftAmount,
-    //         toBN(0),
-    //         [riskToken1.address, basicToken.address],
-    //         users[0],
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {'from': shifter}
-    //     )
-    //     printEvents(tx, "swap to move price down");
-    //     console.log('riskToken1.balanceOf.call(shifter): ', (await riskToken1.balanceOf.call(shifter)).toString());
-    //
-    //     console.log("price after move ", (
-    //         await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
-    //
-    //     const riskyTradeAmountSell = await riskToken1.balanceOf.call(traderpool.address);
-    //     console.log("riskyTradeAmountSell: ", riskyTradeAmountSell.toString());
-    //
-    //     // sell risky token
-    //     path = [riskToken1.address, basicToken.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmountSell,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     // console.log('xxx JSON.stringify(tx):', JSON.stringify(tx));
-    //     // console.log('xxx JSON.stringify(contractEventsAbi(traderpool)):', JSON.stringify(contractEventsAbi(traderpool)));
-    //     printEventsCustomDecode(tx, allDeployedContracts);
-    //     // console.log('xxx JSON.stringify(traderpool):', JSON.stringify(traderpool));
-    //     // let events = [];
-    //     // const abi = traderpool["constructor"]["abi"];
-    //     // for (let i = 0; i < abi.length; i++) {
-    //     //     let item = abi[i];
-    //     //     if (item['type'] == 'event') {
-    //     //         events.push(item);
-    //     //     }
-    //     // }
-    //     // console.log('xxx JSON.stringify(traderpool events):', JSON.stringify(events));
-    //     printEvents(tx, "swap: risky1 -> basic");
-    //
-    //     let risky1BalanceOfTraderPool = await riskToken1.balanceOf.call(traderpool.address);
-    //     assert.equal(risky1BalanceOfTraderPool.toString(), toBN(0).toString());
-    //
-    //     let LPbalanceOfuser0 = await TraderLPT.balanceOf.call(users[0]);
-    //     let deltaBalance = LPbalanceOfuser0.sub(deposit_amount);
-    //     let expected = -riskyTradeAmount.div(toBN(2));
-    //     assert(deltaBalance.lt(toBN(0)), "too big delta_balance (should be neg): " + deltaBalance.toString());
-    //     assert(deltaBalance.sub(expected).mul(toBN(100)).div(expected).abs().lte(toBN(1)),
-    //         "too big delta_balance: " + deltaBalance.toString());
-    // });
+    it('Test loss risk trade', async () => {
+        const usersAndTrader = [accounts[1], accounts[2], accounts[3], traderWallet];
+        const users = [accounts[1], accounts[2], accounts[3]];
+        const deposit_amount = toBN(10).mul(decimals);
+        for(const u of usersAndTrader) {
+            await basicToken.approve.sendTransaction(traderpool.address, deposit_amount, {'from': u});
+            await traderpool.deposit.sendTransaction(deposit_amount, {'from': u});
+            assert.equal((await TraderLPT.balanceOf.call(u)).toString(), deposit_amount.toString());
+        }
 
-    // it('Test profit risk trade', async () => {
-    //     const usersAndTrader = [accounts[1], accounts[2], accounts[3], traderWallet];
-    //     const users = [accounts[1], accounts[2], accounts[3]];
-    //     const deposit_amount = toBN(10).mul(decimals);
-    //     for(const u of usersAndTrader) {
-    //         await basicToken.approve.sendTransaction(traderpool.address, deposit_amount, {'from': u});
-    //         await traderpool.deposit.sendTransaction(deposit_amount, {'from': u});
-    //         assert.equal((await TraderLPT.balanceOf.call(u)).toString(), deposit_amount.toString());
-    //     }
-    //
-    //     assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(40).mul(decimals).toString());
-    //     assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
-    //     assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
-    //     assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
-    //
-    //     let maxPositionAmount = await traderpool.getMaxPositionOpenAmount.call();
-    //     console.log("maxPositionAmount: ",maxPositionAmount.toString());
-    //
-    //     let amount = toBN(10).mul(decimals);
-    //     // buy another token
-    //     let path = [basicToken.address, anotherToken.address];
-    //     let tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         amount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: basic -> another")
-    //
-    //     assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
-    //     assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
-    //     // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
-    //     assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
-    //     assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
-    //     // assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(30).mul(decimals).toString());
-    //     // assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(10).mul(decimals).toString());
-    //     // assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
-    //     // assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
-    //
-    //     tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
-    //     printEvents(tx, "createProposal")
-    //
-    //     tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, toBN(10).mul(decimals), {'from': users[0]});
-    //     printEvents(tx, "setAllowanceForProposal")
-    //
-    //     const riskyTradeAmount = decimals.div(toBN(10000));  // 0.0001
-    //     // buy risky token
-    //     path = [basicToken.address, riskToken1.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: basic -> risky1")
-    //
-    //     assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
-    //     assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
-    //     // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
-    //     assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN('99799999999999'));
-    //     // assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), riskyTradeAmount);
-    //     assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
-    //
-    //     console.log("accounts[0] balance of basicToken: ", (await basicToken.balanceOf(accounts[0])).toString());
-    //     console.log("accounts[0] balance of riskToken1: ", (await riskToken1.balanceOf(accounts[0])).toString());
-    //
-    //     console.log("price before move ", (
-    //         await uniswapRouter.getAmountsOut.call(trillion, [riskToken1.address, basicToken.address]))[0].toString());
-    //
-    //     // let shiftAmount = toBN(1000).mul(billion).mul(decimals);
-    //     let shiftAmount = toBN(1000).mul(decimals);
-    //     let shifter = accounts[0];
-    //     console.log('riskToken1.balanceOf.call(shifter): ', (await riskToken1.balanceOf.call(shifter)).toString());
-    //     await riskToken1.approve.sendTransaction(uniswapRouter.address, shiftAmount, {'from': shifter});
-    //     tx = await uniswapRouter.swapExactTokensForTokens.sendTransaction(
-    //         shiftAmount,
-    //         toBN(0),
-    //         [basicToken.address, riskToken1.address],
-    //         users[0],
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {'from': shifter}
-    //     )
-    //     printEvents(tx, "swap to move price down");
-    //     console.log('riskToken1.balanceOf.call(shifter): ', (await riskToken1.balanceOf.call(shifter)).toString());
-    //
-    //     console.log("price after move ", (
-    //         await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
-    //
-    //     const riskyTradeAmountSell = await riskToken1.balanceOf.call(traderpool.address);
-    //     console.log("riskyTradeAmountSell: ", riskyTradeAmountSell.toString());
-    //
-    //     // sell risky token
-    //     path = [riskToken1.address, basicToken.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmountSell,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     // console.log('xxx JSON.stringify(tx):', JSON.stringify(tx));
-    //     // console.log('xxx JSON.stringify(contractEventsAbi(traderpool)):', JSON.stringify(contractEventsAbi(traderpool)));
-    //     printEventsCustomDecode(tx, allDeployedContracts);
-    //     // console.log('xxx JSON.stringify(traderpool):', JSON.stringify(traderpool));
-    //     // let events = [];
-    //     // const abi = traderpool["constructor"]["abi"];
-    //     // for (let i = 0; i < abi.length; i++) {
-    //     //     let item = abi[i];
-    //     //     if (item['type'] == 'event') {
-    //     //         events.push(item);
-    //     //     }
-    //     // }
-    //     // console.log('xxx JSON.stringify(traderpool events):', JSON.stringify(events));
-    //     printEvents(tx, "swap: risky1 -> basic");
-    //
-    //     let risky1BalanceOfTraderPool = await riskToken1.balanceOf.call(traderpool.address);
-    //     assert.equal(risky1BalanceOfTraderPool.toString(), toBN(0).toString());
-    //
-    //     let LPbalanceOfuser0 = await TraderLPT.balanceOf.call(users[0]);
-    //     let deltaBalance = LPbalanceOfuser0.sub(deposit_amount);
-    //     let expected = riskyTradeAmount.div(toBN(2));
-    //     assert(deltaBalance.lt(toBN(0)), "too big delta_balance (should be positive): " + deltaBalance.toString());
-    //     assert(deltaBalance.sub(expected).mul(toBN(100)).div(expected).abs().lte(toBN(1)),
-    //         "too small delta_balance: " + deltaBalance.toString());
-    // });
+        assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(40).mul(decimals).toString());
+        assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+        assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+        assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
 
-    // it('Profit 2 profit trades by 2 isolated users', async () => {
+        let maxPositionAmount = await traderpool.getMaxPositionOpenAmount.call();
+        console.log("maxPositionAmount: ",maxPositionAmount.toString());
+
+        let amount = toBN(10).mul(decimals);
+        // buy another token
+        let path = [basicToken.address, anotherToken.address];
+        let tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            amount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> another")
+
+        assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
+        assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
+        // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
+        assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
+        assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
+        // assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(30).mul(decimals).toString());
+        // assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(10).mul(decimals).toString());
+        // assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
+        // assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
+
+        tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
+        printEvents(tx, "createProposal")
+
+        tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, toBN(10).mul(decimals), {'from': users[0]});
+        printEvents(tx, "setAllowanceForProposal")
+
+        const riskyTradeAmount = decimals.div(toBN(10000));  // 0.0001
+        // buy risky token
+        path = [basicToken.address, riskToken1.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> risky1")
+
+        assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
+        assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
+        // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
+        assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN('99799999999999'));
+        // assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), riskyTradeAmount);
+        assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
+
+        console.log("accounts[0] balance of basicToken: ", (await basicToken.balanceOf(accounts[0])).toString());
+        console.log("accounts[0] balance of riskToken1: ", (await riskToken1.balanceOf(accounts[0])).toString());
+
+        console.log("price before move ", (
+            await uniswapRouter.getAmountsOut.call(trillion, [riskToken1.address, basicToken.address]))[0].toString());
+
+        let shiftAmount = toBN(1000).mul(decimals);
+        let shifter = accounts[0];
+        await moveRiskPriceDown(shiftAmount, shifter, riskToken1);
+
+        console.log("price after move ", (
+            await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
+
+        const riskyTradeAmountSell = await riskToken1.balanceOf.call(traderpool.address);
+        console.log("riskyTradeAmountSell: ", riskyTradeAmountSell.toString());
+
+        // sell risky token
+        path = [riskToken1.address, basicToken.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmountSell,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        // console.log('xxx JSON.stringify(tx):', JSON.stringify(tx));
+        // console.log('xxx JSON.stringify(contractEventsAbi(traderpool)):', JSON.stringify(contractEventsAbi(traderpool)));
+        printEventsCustomDecode(tx, allDeployedContracts);
+        // console.log('xxx JSON.stringify(traderpool):', JSON.stringify(traderpool));
+        // let events = [];
+        // const abi = traderpool["constructor"]["abi"];
+        // for (let i = 0; i < abi.length; i++) {
+        //     let item = abi[i];
+        //     if (item['type'] == 'event') {
+        //         events.push(item);
+        //     }
+        // }
+        // console.log('xxx JSON.stringify(traderpool events):', JSON.stringify(events));
+        printEvents(tx, "swap: risky1 -> basic");
+
+        let risky1BalanceOfTraderPool = await riskToken1.balanceOf.call(traderpool.address);
+        assert.equal(risky1BalanceOfTraderPool.toString(), toBN(0).toString());
+
+        let LPbalanceOfuser0 = await TraderLPT.balanceOf.call(users[0]);
+        let deltaBalance = LPbalanceOfuser0.sub(deposit_amount);
+        let expected = -riskyTradeAmount.div(toBN(2));
+        assert(deltaBalance.lt(toBN(0)), "too big delta_balance (should be neg): " + deltaBalance.toString());
+        assert(deltaBalance.sub(expected).mul(toBN(100)).div(expected).abs().lte(toBN(1)),
+            "too big delta_balance: " + deltaBalance.toString());
+    });
+
+    it('Test profit risk trade', async () => {
+        const usersAndTrader = [accounts[1], accounts[2], accounts[3], traderWallet];
+        const users = [accounts[1], accounts[2], accounts[3]];
+        const deposit_amount = toBN(10).mul(decimals);
+        for(const u of usersAndTrader) {
+            await basicToken.approve.sendTransaction(traderpool.address, deposit_amount, {'from': u});
+            await traderpool.deposit.sendTransaction(deposit_amount, {'from': u});
+            assert.equal((await TraderLPT.balanceOf.call(u)).toString(), deposit_amount.toString());
+        }
+
+        assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(40).mul(decimals).toString());
+        assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+        assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+        assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+
+        let maxPositionAmount = await traderpool.getMaxPositionOpenAmount.call();
+        console.log("maxPositionAmount: ",maxPositionAmount.toString());
+
+        let amount = toBN(10).mul(decimals);
+        // buy another token
+        let path = [basicToken.address, anotherToken.address];
+        let tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            amount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> another")
+
+        assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
+        assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
+        // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
+        assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
+        assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
+        // assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(30).mul(decimals).toString());
+        // assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(10).mul(decimals).toString());
+        // assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
+        // assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).mul(decimals).toString());
+
+        tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
+        printEvents(tx, "createProposal")
+
+        tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, toBN(10).mul(decimals), {'from': users[0]});
+        printEvents(tx, "setAllowanceForProposal")
+
+        const riskyTradeAmount = decimals.div(toBN(10000));  // 0.0001
+        // buy risky token
+        path = [basicToken.address, riskToken1.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> risky1")
+
+        assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals));
+        assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('9881383789778015406'));  // todo discuss
+        // assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN(10).mul(decimals));
+        assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), toBN('99799999999999'));
+        // assertBNAlmostEqual((await riskToken1.balanceOf.call(traderpool.address)), riskyTradeAmount);
+        assertBNAlmostEqual((await riskToken2.balanceOf.call(traderpool.address)), toBN(0).mul(decimals));
+
+        console.log("accounts[0] balance of basicToken: ", (await basicToken.balanceOf(accounts[0])).toString());
+        console.log("accounts[0] balance of riskToken1: ", (await riskToken1.balanceOf(accounts[0])).toString());
+
+        console.log("price before move ", (
+            await uniswapRouter.getAmountsOut.call(trillion, [riskToken1.address, basicToken.address]))[0].toString());
+
+        // let shiftAmount = toBN(1000).mul(billion).mul(decimals);
+        let shiftAmount = toBN(1000).mul(decimals);
+        let shifter = accounts[0];
+        await moveRiskPriceUp(shiftAmount, shifter, riskToken1);
+        console.log("price after move ", (
+            await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
+
+        const riskyTradeAmountSell = await riskToken1.balanceOf.call(traderpool.address);
+        console.log("riskyTradeAmountSell: ", riskyTradeAmountSell.toString());
+
+        // sell risky token
+        path = [riskToken1.address, basicToken.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmountSell,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        // console.log('xxx JSON.stringify(tx):', JSON.stringify(tx));
+        // console.log('xxx JSON.stringify(contractEventsAbi(traderpool)):', JSON.stringify(contractEventsAbi(traderpool)));
+        printEventsCustomDecode(tx, allDeployedContracts);
+        // console.log('xxx JSON.stringify(traderpool):', JSON.stringify(traderpool));
+        // let events = [];
+        // const abi = traderpool["constructor"]["abi"];
+        // for (let i = 0; i < abi.length; i++) {
+        //     let item = abi[i];
+        //     if (item['type'] == 'event') {
+        //         events.push(item);
+        //     }
+        // }
+        // console.log('xxx JSON.stringify(traderpool events):', JSON.stringify(events));
+        printEvents(tx, "swap: risky1 -> basic");
+
+        let risky1BalanceOfTraderPool = await riskToken1.balanceOf.call(traderpool.address);
+        assert.equal(risky1BalanceOfTraderPool.toString(), toBN(0).toString());
+
+        let LPbalanceOfuser0 = await TraderLPT.balanceOf.call(users[0]);
+        let deltaBalance = LPbalanceOfuser0.sub(deposit_amount);
+        let expected = riskyTradeAmount.div(toBN(2));
+        assert(deltaBalance.lt(toBN(0)), "too big delta_balance (should be positive): " + deltaBalance.toString());
+        assert(deltaBalance.sub(expected).mul(toBN(100)).div(expected).abs().lte(toBN(1)),
+            "too small delta_balance: " + deltaBalance.toString());
+    });
+
+    it('Profit 2 profit trades by 2 isolated users', async () => {
+        const usersAndTrader = [accounts[1], accounts[2], accounts[3], traderWallet];
+        const users = [accounts[1], accounts[2], accounts[3]];
+        const deposit_amount = toBN(10).mul(decimals);
+        for(const u of usersAndTrader) {
+            await basicToken.approve.sendTransaction(traderpool.address, deposit_amount, {'from': u});
+            await traderpool.deposit.sendTransaction(deposit_amount, {'from': u});
+            assert.equal((await TraderLPT.balanceOf.call(u)).toString(), deposit_amount.toString());
+        }
+
+        assert.equal((await basicToken.balanceOf.call(traderpool.address)).toString(), toBN(40).mul(decimals).toString());
+        assert.equal((await anotherToken.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+        assert.equal((await riskToken1.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+        assert.equal((await riskToken2.balanceOf.call(traderpool.address)).toString(), toBN(0).toString());
+
+        let maxPositionAmount = await traderpool.getMaxPositionOpenAmount.call();
+        console.log("maxPositionAmount: ",maxPositionAmount.toString());
+
+        let amount = toBN(10).mul(decimals);
+        let path = [basicToken.address, anotherToken.address];
+        let tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            amount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> another")
+
+        const smallAmount = decimals.div(billion);
+        const riskyTradeAmount = smallAmount;
+
+        tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
+        printEvents(tx, "createProposal")
+
+        const user0Allowance = toBN(10).mul(decimals);
+        const user1Allowance = toBN(20).mul(decimals);
+
+        tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, user0Allowance, {'from': users[0]});
+        printEvents(tx, "setAllowanceForProposal by users[0]")
+
+        tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, user1Allowance, {'from': users[1]});
+        printEvents(tx, "setAllowanceForProposal by users[1]")
+
+        // buy risky token
+        path = [basicToken.address, riskToken1.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap1: basic -> risky1")
+
+        // await swapper.setPrice.sendTransaction(riskyToken.address, baseToken.address, 2*10**18, 1*10**18);
+
+        tx = await traderpool.setAllowanceForProposal.sendTransaction(riskToken1.address, toBN(10).mul(decimals), {'from': users[1]});
+        printEvents(tx, "setAllowanceForProposal")
+
+        // todo
+        // assert.equal((await riskyToken.balanceOf(traderpool.address)), (1.5*riskyTradeAmount).toInt());
+        // const totalLockedLp = traderpool.totalLockedLp.call();
+        // const expected = (riskyTradeAmount * (1 + 0.5/0.5)).toInt();
+        // assert.equal(abs(totalLockedLp-expected) / expected, ALPHA);
+
+        let shiftAmount = toBN(1000).mul(decimals);
+        let shifter = accounts[0];
+        await moveRiskPriceUp(shiftAmount, shifter, riskToken1);
+        console.log("price after move ", (
+        await uniswapRouter.getAmountsOut.call(decimals, [riskToken1.address, basicToken.address]))[0].toString());
+
+        // sell risky token
+        path = [riskToken1.address, basicToken.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmountSell,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEventsCustomDecode(tx, allDeployedContracts);
+        printEvents(tx, "swap: risky1 -> basic");
+
+        let risky1BalanceOfTraderPool = await riskToken1.balanceOf.call(traderpool.address);
+        assert.equal(risky1BalanceOfTraderPool.toString(), toBN(0).toString());
+
+        // todo
+        //   check users[0] and users[1] shared profit
+
+        // let LPbalanceOfuser0 = await TraderLPT.balanceOf.call(users[0]);
+        // let LPbalanceOfuser1 = await TraderLPT.balanceOf.call(users[1]);
+        // let deltaBalance = LPbalanceOfuser0.sub(deposit_amount);
+        // let expected = riskyTradeAmount.div(toBN(2));
+        // assert(deltaBalance.lt(toBN(0)), "too big delta_balance (should be positive): " + deltaBalance.toString());
+        // assert(deltaBalance.sub(expected).mul(toBN(100)).div(expected).abs().lte(toBN(1)),
+        //     "too small delta_balance: " + deltaBalance.toString());
+    });
+
+    it('profit by risk trading for 1th user and loss for 2nd', async () => {/*todo*/});
+
+    // it('profit by risk trading takes into account current lp price move', async () => {
     //     const usersAndTrader = [accounts[1], accounts[2], accounts[3], traderWallet];
     //     const users = [accounts[1], accounts[2], accounts[3]];
     //     const deposit_amount = toBN(10).mul(decimals);
@@ -902,73 +1002,72 @@ contract('TraderPool', (accounts) => {
     //
     // });
 
-    // it('profit on riskToken1, loss on riskTokwn2', async () => {
-    //     let tx;
-    //
-    //     // createProposal 1
-    //     tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
-    //
-    //     // createProposal 2
-    //     tx = await traderpool.createProposal.sendTransaction(riskToken2.address, {'from': traderWallet});
-    //
-    //     const riskyTradeAmount = toBN(1) * decimals;
-    //
-    //     // buy risk1
-    //     path = [basicToken.address, riskToken1.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: basic -> risky1")
-    //
-    //     // buy risk2
-    //     path = [basicToken.address, riskToken1.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: basic -> risky2")
-    //
-    //     // move price 1 up
-    //     await addLiquidityToPool(uniswapRouter, basicToken, riskToken1, trillion, toBN(0), accounts[0]);
-    //
-    //     // move price 2 down
-    //     await addLiquidityToPool(uniswapRouter, basicToken, riskToken1, toBN(0), trillion, accounts[0]);
-    //
-    //     // sell 1
-    //     path = [riskToken1.address, basicToken.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: risky1 -> basic")
-    //
-    //     // sell 2
-    //     path = [riskToken2.address, basicToken.address];
-    //     tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
-    //         traderpool.address,
-    //         riskyTradeAmount,
-    //         toBN(0),
-    //         path,
-    //         Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
-    //         {from: traderWallet}
-    //     );
-    //     printEvents(tx, "swap: risky2 -> basic")
-    //
-    //     // check balances
-    // });
+    it('profit on riskToken1, loss on riskTokwn2', async () => {
+        let tx;
+
+        // createProposal 1
+        tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
+
+        // createProposal 2
+        tx = await traderpool.createProposal.sendTransaction(riskToken2.address, {'from': traderWallet});
+
+        const riskyTradeAmount = toBN(1) * decimals;
+
+        // buy risk1
+        path = [basicToken.address, riskToken1.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> risky1")
+
+        // buy risk2
+        path = [basicToken.address, riskToken1.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: basic -> risky2")
+
+        let shiftAmount = toBN(1000).mul(decimals);
+        let shifter = accounts[0];
+        await moveRiskPriceUp(shiftAmount, shifter, riskToken1);
+        await moveRiskPriceDown(shiftAmount, shifter, riskToken2);
+
+        // sell 1
+        path = [riskToken1.address, basicToken.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: risky1 -> basic")
+
+        // sell 2
+        path = [riskToken2.address, basicToken.address];
+        tx = await uniswapExhangeTool.swapExactTokensForTokens.sendTransaction(
+            traderpool.address,
+            riskyTradeAmount,
+            toBN(0),
+            path,
+            Math.round((new Date().getTime() + (2 * 24 * 60 * 60 * 1000))/1000),
+            {from: traderWallet}
+        );
+        printEvents(tx, "swap: risky2 -> basic")
+
+        // todo check LP balances
+    });
 
     // it('liquidate riskToken1', async () => {
     //     let tx;

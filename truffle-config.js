@@ -32,7 +32,7 @@ module.exports = {
       network_id: 5777, //Match Ganache(Truffle) network id
       // provider: () => new HDWalletProvider(mnemonic, Infura.BSC),
       //provider: () => new Provider('88197d4cac39375094dab1cfd7e302a0874a342ed6a1a965a8d8e4e381327eb1', 'http://127.0.0.1:8545'),
-      gas: 40000000,
+      gas: 4000000000,
       networkCheckTimeout: 10000000
     },
     rinkeby: {
