@@ -194,6 +194,8 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
         _;
     }
 
+    // todo user and admin should not be allowed to transfer/burn locked LP
+
     event UserJoinedRiskySubPool(address indexed user, address indexed riskyToken);
     event UserLeftRiskySubPool(address indexed user, address indexed riskyToken);
 
@@ -375,6 +377,10 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
         }
     }
 
+//    function PoolUpgradeable() public view returns(int128) {
+//        return ABDKMath64x64.divu(_totalCap(), totalSupply());  // todo discuss
+//    }
+
     function _sellRiskToken(
         address riskyToken,
         uint256 riskyTokenAmount,
@@ -383,11 +389,15 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
     ) internal {
         emit E0("CALLED _sellRiskToken");
         RiskSubPool storage riskySubPool = _riskSubPools[riskyToken];
-        int128 currentLpTokenPrice = ABDKMath64x64.divu(_totalCap(), totalSupply());  // todo discuss
-        emit E1("currentLpTokenPrice = ", currentLpTokenPrice.toUInt());  // todo representation
+        uint256 currentLpTokenPriceN;
+        uint256 currentLpTokenPriceD;
+        (currentLpTokenPriceN, currentLpTokenPriceD) = getCurrentLpTokenPrice();
+//        emit E1("currentLpTokenPrice = ", currentLpTokenPrice.toUInt());  // todo representation
+        emit E2("currentLpTokenPriceN = ", currentLpTokenPriceN, ", currentLpTokenPriceD = ", currentLpTokenPriceN);  // todo representation
         RiskSubPool storage subPool = _riskSubPools[riskyToken];
         uint256 relevantLockedLpAmount = subPool.totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
-        uint256 tradeLpAmountEquivalent = ABDKMath64x64.fromUInt(basicTokenAmount).div(currentLpTokenPrice).toUInt();
+//        uint256 tradeLpAmountEquivalent = ABDKMath64x64.fromUInt(basicTokenAmount).div(currentLpTokenPrice).toUInt();
+        uint256 tradeLpAmountEquivalent = basicTokenAmount * currentLpTokenPriceD / currentLpTokenPriceN;
 
         emit E1("subPool.users.length() = ", subPool.users.length());
         for(uint256 i=0; i<subPool.users.length(); ++i){
