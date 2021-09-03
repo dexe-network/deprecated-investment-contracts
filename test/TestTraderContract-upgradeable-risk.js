@@ -463,11 +463,9 @@ contract('TraderPool', (accounts) => {
         let maxPositionAmount = await traderpool.getMaxPositionOpenAmount.call();
         console.log("maxPositionAmount: ",maxPositionAmount.toString());
 
-
-        let x = await traderpool.getCurrentLpTokenPrice2.call();
-        let lpTokenPriceN0;
-        let lpTokenPriceD0;
-        [lpTokenPriceN0, lpTokenPriceD0] = await traderpool.getCurrentLpTokenPrice.call();
+        let lpTokenPriceN0 = await traderpool.REMOVEgetCurrentLpTokenPriceN.call();
+        let lpTokenPriceD0 = await traderpool.REMOVEgetCurrentLpTokenPriceD.call();
+        console.log("lpTokenPriceN0/lpTokenPriceD0:", lpTokenPriceN0, '/', lpTokenPriceD0);
 
         // proposal
         tx = await traderpool.createProposal.sendTransaction(riskToken1.address, {'from': traderWallet});
@@ -490,11 +488,11 @@ contract('TraderPool', (accounts) => {
         );
         printEvents(tx, "swap: basic -> risky1")
 
-        let lpTokenPriceN1;
-        let lpTokenPriceD1;
-        [lpTokenPriceN1, lpTokenPriceD1] = await traderpool.getCurrentLpTokenPrice();
-        assert(lpTokenPriceN1.eq(lpTokenPriceN0));
-        assert(lpTokenPriceD1.eq(lpTokenPriceD0));
+        let lpTokenPriceN1 = await traderpool.REMOVEgetCurrentLpTokenPriceN.call();
+        let lpTokenPriceD1 = await traderpool.REMOVEgetCurrentLpTokenPriceD.call();
+        console.log("lpTokenPriceN1/lpTokenPriceD1:", lpTokenPriceN1, '/', lpTokenPriceD1);
+        assert.equal(lpTokenPriceN1.toString(), lpTokenPriceN0.toString());
+        assert.equal(lpTokenPriceD1.toString(), lpTokenPriceD0.toString());
 
         assertBNAlmostEqual((await basicToken.balanceOf.call(traderpool.address)), toBN(30).mul(decimals).sub(riskyTradeAmount));
         assertBNAlmostEqual((await anotherToken.balanceOf.call(traderpool.address)), toBN('0'));
@@ -535,11 +533,13 @@ contract('TraderPool', (accounts) => {
         printEvents(tx, "swap: risky1 -> basic");
 
         // check that lp price did not change
-        let lpTokenPriceN2;
-        let lpTokenPriceD2;
-        [lpTokenPriceN2, lpTokenPriceD2] = await traderpool.getCurrentLpTokenPrice();
-        assert(lpTokenPriceN2.eq(lpTokenPriceN0));
-        assert(lpTokenPriceD2.eq(lpTokenPriceD0));
+        let lpTokenPriceN2 = await traderpool.REMOVEgetCurrentLpTokenPriceN.call();
+        let lpTokenPriceD2 = await traderpool.REMOVEgetCurrentLpTokenPriceD.call();
+        console.log("lpTokenPriceN2/lpTokenPriceD2:", lpTokenPriceN2, '/', lpTokenPriceD2);
+        assertBNAlmostEqual(lpTokenPriceN2, lpTokenPriceN0);
+        assertBNAlmostEqual(lpTokenPriceD2, lpTokenPriceD0);
+        // assert.equal(lpTokenPriceN2.toString(), toBN(lpTokenPriceN0).toString());
+        // assert.equal(lpTokenPriceD2.toString(), toBN(lpTokenPriceN0).toString());
 
         let risky1BalanceOfTraderPool = await riskToken1.balanceOf.call(traderpool.address);
         assert.equal(risky1BalanceOfTraderPool.toString(), toBN(0).toString());

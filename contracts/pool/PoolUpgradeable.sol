@@ -160,12 +160,24 @@ abstract contract PoolUpgradeable is Initializable{
         return (10**uint256(IERC20Token(plt).decimals())).div(10**uint256(basicToken.decimals()));
     }
 
-    function getCurrentLpTokenPrice() view public returns(uint256 nominator, uint256 denominator) {
+    function getCurrentLpTokenPrice() view public returns(uint256, uint256) {
         uint256 totalCap = _totalCap();
         uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
         require(totalSupply > 0, "totalSupply > 0 failed");
         require(totalCap > 0, "totalCap > 0 failed");
         return (totalCap, totalSupply);
+    }
+
+    function REMOVEgetCurrentLpTokenPriceN() view public returns(uint256) {
+        uint256 totalCap = _totalCap();
+        require(totalCap > 0, "totalCap > 0 failed");
+        return totalCap;
+    }
+
+    function REMOVEgetCurrentLpTokenPriceD() view public returns(uint256) {
+        uint256 totalSupply = IPoolLiquidityToken(plt).totalSupply();
+        require(totalSupply > 0, "totalSupply > 0 failed");
+        return totalSupply;
     }
 
     function getCurrentLpTokenPrice2() public view returns(uint256 nominator) {
