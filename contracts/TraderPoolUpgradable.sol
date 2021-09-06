@@ -324,6 +324,7 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
         RiskSubPool storage subPool = _riskSubPools[riskyToken];
         subPool.enabled = true;
         subPool.userInfo[msg.sender].riskyAllowedLp = type(uint256).max;
+        subPool.users.add(trader);
         emit RiskyTradingProposalCreated(msg.sender, riskyToken);
         emit RiskyTradingAllowanceSet(msg.sender, riskyToken, type(uint256).max);
     }
@@ -396,7 +397,12 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
         emit E2("currentLpTokenPriceN = ", currentLpTokenPriceN, ", currentLpTokenPriceD = ", currentLpTokenPriceN);  // todo representation
         RiskSubPool storage subPool = _riskSubPools[riskyToken];
         uint256 relevantLockedLpAmount = subPool.totalLockedLp * riskyTokenAmount / riskyBalanceBefore;
-//        uint256 tradeLpAmountEquivalent = ABDKMath64x64.fromUInt(basicTokenAmount).div(currentLpTokenPrice).toUInt();
+        emit E1("subPool.totalLockedLp = ", subPool.totalLockedLp);
+        emit E1("riskyTokenAmount = ", riskyTokenAmount);
+        emit E1("riskyBalanceBefore = ", riskyBalanceBefore);
+        emit E1("relevantLockedLpAmount = subPool.totalLockedLp * riskyTokenAmount / riskyBalanceBefore =", relevantLockedLpAmount);
+
+        //        uint256 tradeLpAmountEquivalent = ABDKMath64x64.fromUInt(basicTokenAmount).div(currentLpTokenPrice).toUInt();
         uint256 tradeLpAmountEquivalent = basicTokenAmount * currentLpTokenPriceD / currentLpTokenPriceN;
 
         emit E1("subPool.users.length() = ", subPool.users.length());
@@ -432,7 +438,7 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
                 uint256 x = shareRelevantLp - shareTradeLpEq;
                 emit E2("LOSS user", i, "burn x", x);
                 IPoolLiquidityToken(plt).burn(user, x);
-                profile.riskyAllowedLp += x;
+//                profile.riskyAllowedLp += x;  todo discuss
             }
         }
     }
@@ -583,8 +589,10 @@ admin recv profit = 100/1000 * 2000 - locked100, locked:=0
                 // todo remove because replaced with dynamic calculation
 //                uint256 totalAvailableLp = subPool.totalAllowedLp - subPool.totalLockedLp;
                 uint256 totalAvailableLp = totalAllowedLpToBuyRiskToken(toAsset);
+                emit E1("totalAvailableLp=", totalAvailableLp);
 
                 require(totalAvailableLp >= tradeLpAmountEquivalent, "not enough available Lp");
+                subPool.totalLockedLp += tradeLpAmountEquivalent;
                 for(uint256 i=0; i<subPool.users.length(); ++i){
                     address user = subPool.users.at(i);
                     RiskSubPoolUserInfo storage profile = subPool.userInfo[user];
